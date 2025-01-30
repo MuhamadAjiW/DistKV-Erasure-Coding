@@ -12,12 +12,12 @@ function StartWithWindowsTerminal {
     $initDir = Get-Location
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = "wt.exe"
-    $startInfo.Arguments = "-w 0 nt --suppressApplicationTitle --title " + $Title + " -d " + $initDir + " cmd /k " + $Command
+    $startInfo.Arguments = "-w 0 nt --suppressApplicationTitle --title " + $Title + " -d " + $initDir + " powershell -NoExit -Command " + $Command
     $startInfo.UseShellExecute = $false
 
     #     Set environment variables (Uncomment if needed)
-    #    $startInfo.Environment["Path"] = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-    #            [System.Environment]::GetEnvironmentVariable("Path", "User")
+    # $startInfo.Environment["Path"] = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+    # [System.Environment]::GetEnvironmentVariable("Path", "User")
 
     # Start the process
     [System.Diagnostics.Process]::Start($startInfo)
@@ -138,12 +138,18 @@ function RunAll {
         [int]$LeaderPort = 8080,
         [int]$FollowerPort = 8081,
         [int]$ShardCount = 4,
-        [int]$ParityCount = 2    
+        [int]$ParityCount = 2,
+        [switch]$Runlocal
     )
-    if (-not $Addr) {
-        $Addr = WifiIP
+    if ($Runlocal) {
+        $Addr = "127.0.0.1"
+    }
+    else {
         if (-not $Addr) {
-            $Addr = "0.0.0.0"
+            $Addr = WifiIP
+            if (-not $Addr) {
+                $Addr = "0.0.0.0"
+            }
         }
     }
 
