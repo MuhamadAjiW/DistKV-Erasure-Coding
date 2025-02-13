@@ -25,31 +25,37 @@ use crate::{
 };
 
 use super::node::Node;
+use memcache::Client;
+use rust_rocksdb::DB;
 
+// _TODO: Switch map using rocks_db and memcached
 pub struct Store {
     map: HashMap<String, String>,
-    // wal_path: String,
-    // sstables: Vec<String>,
+    rocks_db: DB,
+    memcached: Client,
 }
 
 impl Store {
-    // pub fn new(wal_path: &Stringing) -> Self {
-    pub fn new() -> Self {
+    pub fn new(db_path: &str, memcached_url: &str) -> Self {
         return Store {
             map: HashMap::new(),
-            // wal_path: wal_path.clone(),
+            rocks_db: DB::open_default(db_path).expect("Failed to open RocksDB"),
+            memcached: Client::connect(memcached_url).expect("Failed to connect to memcached"),
         };
     }
 
     pub fn set(&mut self, key: &str, value: &str) {
+        // Hashmap
         self.map.insert(key.to_string(), value.to_string());
     }
 
     pub fn get(&self, key: &str) -> String {
+        // Hashmap
         return self.map.get(key).cloned().unwrap_or("".to_string());
     }
 
     pub fn remove(&mut self, key: &str) -> String {
+        // Hashmap
         return self.map.remove(key).unwrap_or("".to_string());
     }
 
@@ -105,13 +111,6 @@ impl Store {
         Ok(())
     }
 
-    // fn flush_to_sstable(kv: &BinKV, file: &mut std::fs::File) {
-    //     let encoded = bincode::serialize(&kv).unwrap();
-    //     file.write_all(&encoded).unwrap();
-    // }
-
-    // _TODO: Fetching data from files
-    // pub async fn get_from_wal(&self, key: &str) -> Result<Option<Vec<u8>>, io::Error> {
     pub async fn get_from_wal(
         &self,
         wal_path: &String,

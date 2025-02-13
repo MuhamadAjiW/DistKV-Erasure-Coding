@@ -47,10 +47,9 @@ impl Node {
         let running = false;
         let cluster_list = Arc::new(Mutex::new(Vec::new()));
         let cluster_index = std::usize::MAX;
+        let memcached_url = format!("memcached://{}:{}", address.ip, address.port + 10000);
 
-        // let filename = address.ip.to_string() + ".." + &address.port.to_string() + ".log";
-        // let store = Store::new(&filename);
-        let store = Store::new();
+        let store = Store::new(&address.to_string(), &memcached_url);
         let request_id = 0;
         let ec = ECService::new(shard_count, parity_count);
 
