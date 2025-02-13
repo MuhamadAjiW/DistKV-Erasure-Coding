@@ -21,6 +21,8 @@ start_terminal() {
     local command="$1"
     local session_name="$2"
     
+    echo "Starting terminal with command: ${command}"
+
     create_screen_session
     
     screen -S "$SCREEN_SESSION" -X screen -t "$window_name" bash -c "$command"
@@ -41,7 +43,6 @@ follower() {
   local command="cargo run -- follower ${addr}:${port} ${leader_addr} ${lb_addr} ${shard_count} ${parity_count}"
 
   echo "Starting follower on ${addr}:${port}"
-  echo "Command: ${command}"
 
   start_terminal "$command" "Follower ${port}"
 }
@@ -82,7 +83,6 @@ leader() {
     local command="cargo run -- leader ${addr}:${port} ${lb_addr} ${shard_count} ${parity_count}"
     
     echo "Starting leader on ${addr}:${port}"
-    echo "Command: ${command}"
 
     start_terminal "$command" "Leader"
 }
@@ -98,7 +98,6 @@ load_balancer() {
     local command="cargo run -- load_balancer ${addr}:${port}"
     
     echo "Starting load balancer on ${addr}:${port}"
-    echo "Command: ${command}"
 
     start_terminal "$command" "LoadBalancer"
 }
@@ -123,38 +122,45 @@ run_all() {
     leader "$addr" "${addr}:${lb_port}" "$leader_port" "$shard_count" "$parity_count"
     sleep 1
     followers "$addr" "${addr}:${leader_port}" "${addr}:${lb_port}" "$follower_port" "$shard_count" "$parity_count"
+    sleep 1
+    
+    local instance_count=$((shard_count + parity_count))
+    start_terminal "./scripts.sh run_memcached $instance_count"
+
+    echo "All services started."
 }
 
 # Memcached
 run_memcached() {
-  local BASE_PORT="${1:-11211}"
-  local MEMORY="${2:-64}"
-  local PIDS=()
+    local instances="${1:-6}"
+    local base_port="${2:-11211}"
+    local memory="${3:-64}"
+    local PIDS=()
 
-  # Function to clean up Memcached processes on SIGINT (Ctrl+C)
-  cleanup_memcached() {
-      echo -e "\nStopping Memcached instances..."
-      for PID in "${PIDS[@]}"; do
-          echo "Killing process $PID"
-          kill -9 $PID
-      done
-      echo "All Memcached instances stopped."
-      exit 0
-  }
-  trap cleanup_memcached SIGINT
+    # Function to clean up Memcached processes on SIGINT (Ctrl+C)
+    cleanup_memcached() {
+        echo -e "\nStopping Memcached instances..."
+        for PID in "${PIDS[@]}"; do
+            echo "Killing process $PID"
+            kill -9 $PID
+        done
+        echo "All Memcached instances stopped."
+        exit 0
+    }
+    trap cleanup_memcached SIGINT
 
-  for i in {0..4}; do
-      PORT=$((BASE_PORT + i))
-      memcached -d -m $MEMORY -p $PORT
-      sleep 1
-      PID=$(pgrep -f "memcached -d -m $MEMORY -p $PORT")
-      PIDS+=($PID)
-      echo "Started Memcached on port $PORT with PID $PID"
-  done
+    for ((i=0; i<instances; i++)); do
+        port=$((base_port + i))
+        memcached -d -m $memory -p $port
+        sleep 1
+        PID=$(pgrep -f "memcached -d -m $memory -p $port")
+        PIDS+=($PID)
+        echo "Started Memcached on port $port with PID $PID"
+    done
 
-  while true; do
-      sleep 1
-  done
+    while true; do
+        sleep 1
+    done
 }
 
 if [ "$1" == "run_all" ]; then
