@@ -10,3 +10,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 rand = "0.8"
 reed-solomon-erasure = { version = "6.0", features = [ "simd-accel" ] }
+rust-rocksdb = "*"
+memcache = "*"
