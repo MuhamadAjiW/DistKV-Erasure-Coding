@@ -8,10 +8,7 @@ use tokio::net::UdpSocket;
 use crate::{
     base_libs::{
         _paxos_types::PaxosMessage,
-        network::{
-            _address::Address,
-            _messages::{receive_message, send_message},
-        },
+        network::{_address::Address, _messages::receive_message},
     },
     classes::{ec::_ec_service::ECService, store::_storage_controller::StorageController},
 };
@@ -78,6 +75,7 @@ impl Node {
         node
     }
 
+    // Main Event Loop
     pub async fn run(&mut self) -> Result<(), io::Error> {
         println!("Starting node...");
         self.print_info();
@@ -152,19 +150,7 @@ impl Node {
         Ok(())
     }
 
-    pub async fn forward_to_leader(&self, payload: Vec<u8>) {
-        send_message(
-            &self.socket,
-            PaxosMessage::ClientRequest {
-                request_id: self.request_id,
-                payload: payload.clone(),
-            },
-            &self.leader_address.to_string() as &str,
-        )
-        .await
-        .unwrap();
-    }
-
+    // Information logging
     pub fn print_info(&self) {
         println!("Node info:");
         println!("Address: {}", self.address.to_string());

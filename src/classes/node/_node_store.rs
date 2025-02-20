@@ -21,6 +21,19 @@ use crate::base_libs::{
 use super::_node::Node;
 
 impl Node {
+    pub async fn forward_to_leader(&self, payload: Vec<u8>) {
+        send_message(
+            &self.socket,
+            PaxosMessage::ClientRequest {
+                request_id: self.request_id,
+                payload: payload.clone(),
+            },
+            &self.leader_address.to_string() as &str,
+        )
+        .await
+        .unwrap();
+    }
+
     pub async fn handle_client_request(
         &mut self,
         _src_addr: &String,
@@ -33,22 +46,19 @@ impl Node {
             return ();
         }
         let operation = req.unwrap();
-        let result: String;
-        let message: &str;
         let initial_request_id = self.request_id;
         let load_balancer_addr = &self.load_balancer_address.to_string() as &str;
+        let message = format!("Handled by {}", self.address.to_string());
+        let result: String;
 
         match operation.op_type {
             OperationType::BAD => {
-                message = "Request is handled by leader";
                 result = "Invalid request".to_string();
             }
             OperationType::PING => {
-                message = "Request is handled by leader";
                 result = "PONG".to_string();
             }
             OperationType::GET | OperationType::DELETE | OperationType::SET => {
-                message = "Request is handled by leader";
                 result = self
                     .store
                     .process_request(&operation)
@@ -65,8 +75,6 @@ impl Node {
             .send_to(response.as_bytes(), load_balancer_addr)
             .await
             .unwrap();
-
-        ()
     }
 
     pub async fn handle_recovery_request(&self, src_addr: &String, key: &str) {
