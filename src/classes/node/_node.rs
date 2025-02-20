@@ -72,8 +72,8 @@ impl Node {
             ec,
             ec_active,
         };
-        let node_ref = &node as *const _;
-        node.store.assign_node(unsafe { &*node_ref });
+        let node_ref = &mut node as *mut _;
+        node.store.assign_node(unsafe { &mut *node_ref });
 
         node
     }

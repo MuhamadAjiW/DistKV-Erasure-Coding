@@ -1,5 +1,5 @@
 use crate::{
-    base_libs::_operation::{BinKV, Operation, OperationType},
+    base_libs::_operation::{Operation, OperationType},
     classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
@@ -10,11 +10,11 @@ use super::{_memory_store::MemoryStore, _persistent_store::PersistentStore};
 pub struct StorageController<'a> {
     pub persistent: PersistentStore,
     pub memory: MemoryStore,
-    pub node: Option<&'a Node>, // Dependency injection 'a
+    pub node: Option<&'a mut Node>, // Dependency injection 'a
 }
 
 impl<'a> StorageController<'a> {
-    pub fn new(db_path: &str, memcached_url: &str, node: Option<&'a Node>) -> Self {
+    pub fn new(db_path: &str, memcached_url: &str, node: Option<&'a mut Node>) -> Self {
         StorageController {
             persistent: PersistentStore::new(db_path),
             memory: MemoryStore::new(memcached_url),
@@ -22,7 +22,7 @@ impl<'a> StorageController<'a> {
         }
     }
 
-    pub fn assign_node(&mut self, node: &'a Node) {
+    pub fn assign_node(&mut self, node: &'a mut Node) {
         self.node = Some(node);
     }
 
@@ -38,7 +38,7 @@ impl<'a> StorageController<'a> {
                 }
             }
             OperationType::SET | OperationType::DELETE => {
-                let node = match self.node {
+                let node = match &self.node {
                     Some(n) => n,
                     None => return None,
                 };
@@ -109,7 +109,7 @@ impl<'a> StorageController<'a> {
 
     pub async fn update_value(&mut self, operation: &Operation) -> Option<String> {
         let node = match self.node {
-            Some(ref n) => n,
+            Some(ref mut n) => n,
             None => return None,
         };
 
@@ -123,25 +123,7 @@ impl<'a> StorageController<'a> {
 
         if acks >= majority {
             self.memory.process_request(&operation);
-
-            if node.ec_active {
-                let encoded_shard = node.ec.encode(&operation.kv.value);
-                self.persistent.process_request(&Operation {
-                    op_type: operation.op_type.clone(),
-                    kv: BinKV {
-                        key: operation.kv.key.clone(),
-                        value: encoded_shard[node.cluster_index].clone(),
-                    },
-                });
-
-                acks = node
-                    .broadcast_accept_ec(&follower_list, &operation, &encoded_shard)
-                    .await;
-            } else {
-                acks = node
-                    .broadcast_accept_replication(&follower_list, &operation)
-                    .await;
-            }
+            acks = node.broadcast_accept(&follower_list, operation).await;
 
             if acks >= majority {
                 println!("Request succeeded: Accept broadcast is accepted by majority");

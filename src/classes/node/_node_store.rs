@@ -166,7 +166,31 @@ impl Node {
         acks
     }
 
-    pub async fn broadcast_accept_ec(
+    pub async fn broadcast_accept(
+        &mut self,
+        follower_list: &Vec<String>,
+        operation: &Operation,
+    ) -> usize {
+        if self.ec_active {
+            let encoded_shard = self.ec.encode(&operation.kv.value);
+            self.store.persistent.process_request(&Operation {
+                op_type: operation.op_type.clone(),
+                kv: BinKV {
+                    key: operation.kv.key.clone(),
+                    value: encoded_shard[self.cluster_index].clone(),
+                },
+            });
+
+            self.broadcast_accept_ec(follower_list, operation, &encoded_shard)
+                .await
+        } else {
+            self.store.persistent.process_request(operation);
+            self.broadcast_accept_replication(follower_list, operation)
+                .await
+        }
+    }
+
+    async fn broadcast_accept_ec(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -255,7 +279,7 @@ impl Node {
         acks
     }
 
-    pub async fn broadcast_accept_replication(
+    async fn broadcast_accept_replication(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
