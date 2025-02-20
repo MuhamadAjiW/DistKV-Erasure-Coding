@@ -28,7 +28,9 @@ impl MemoryStore {
     }
 
     pub fn remove(&mut self, key: &str) -> () {
-        let _ = self.memcached.delete(key);
+        self.memcached
+            .delete(key)
+            .expect("Failed to delete from memcached");
     }
 
     pub fn process_request(&mut self, request: &Operation) -> Option<String> {
