@@ -8,7 +8,10 @@ use tokio::net::UdpSocket;
 use crate::{
     base_libs::{
         _paxos_types::PaxosMessage,
-        network::{_address::Address, _messages::receive_message},
+        network::{
+            _address::Address,
+            _messages::{receive_message, send_message},
+        },
     },
     classes::{ec::_ec_service::ECService, store::_storage_controller::StorageController},
 };
@@ -98,6 +101,7 @@ impl Node {
             let (message, src_addr) = receive_message(&self.socket).await.unwrap();
 
             match message {
+                // Paxos messages
                 PaxosMessage::LeaderRequest { request_id } => {
                     self.handle_leader_request(&src_addr, request_id).await
                 }
@@ -110,6 +114,7 @@ impl Node {
                         .await?;
                 }
 
+                // Client messages
                 PaxosMessage::ClientRequest {
                     request_id,
                     payload,
@@ -133,18 +138,7 @@ impl Node {
                 }
 
                 PaxosMessage::RecoveryRequest { key } => {
-                    self.handle_recovery_request(
-                        &src_addr,
-                        &("".to_string()
-                            + &key
-                            + ".."
-                            + &self.address.ip.to_string()
-                            + ".."
-                            + &self.address.port.to_string()
-                            + ".log"),
-                        &key,
-                    )
-                    .await
+                    self.handle_recovery_request(&src_addr, &key).await
                 }
 
                 // _TODO: Handle faulty requests
@@ -156,6 +150,19 @@ impl Node {
         }
 
         Ok(())
+    }
+
+    pub async fn forward_to_leader(&self, payload: Vec<u8>) {
+        send_message(
+            &self.socket,
+            PaxosMessage::ClientRequest {
+                request_id: self.request_id,
+                payload: payload.clone(),
+            },
+            &self.leader_address.to_string() as &str,
+        )
+        .await
+        .unwrap();
     }
 
     pub fn print_info(&self) {

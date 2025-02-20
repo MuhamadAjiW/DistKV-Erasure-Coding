@@ -2,7 +2,7 @@ use std::{io, thread::sleep, time::Duration};
 
 use crate::{
     base_libs::{
-        _operation::{Operation, OperationType},
+        _operation::Operation,
         _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest, PaxosMessage},
         network::_messages::send_message,
     },
@@ -81,21 +81,10 @@ impl Node {
         }
 
         self.request_id = request_id;
-        self.store
-            .persist_request_ec(
-                &("".to_string()
-                    + &operation.kv.key
-                    + ".."
-                    + &self.address.ip.to_string()
-                    + ".."
-                    + &self.address.port.to_string()
-                    + ".log"),
-                operation,
-            )
-            .await?;
+        self.store.persistent.process_request(operation);
 
-        if !self.store.get(&operation.kv.key).is_empty() {
-            self.store.remove(&operation.kv.key);
+        if !self.store.memory.get(&operation.kv.key).is_none() {
+            self.store.memory.remove(&operation.kv.key);
         }
 
         println!(
@@ -107,74 +96,6 @@ impl Node {
         println!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())
-    }
-    pub async fn follower_handle_client_request(
-        &mut self,
-        src_addr: &String,
-        request_id: u64,
-        payload: &Vec<u8>,
-    ) -> Result<(), io::Error> {
-        let leader_addr = &self.leader_address.to_string() as &str;
-        let mut result: String;
-        let message: &str;
-
-        println!("Follower received client request.");
-        let req = Operation::parse(payload);
-        if matches!(req, None) {
-            println!("Request was invalid, dropping request");
-            return Ok(());
-        }
-        let operation = req.unwrap();
-
-        match operation.op_type {
-            OperationType::SET | OperationType::DELETE => {
-                println!("Forwarding to leader.");
-                send_message(
-                    &self.socket,
-                    PaxosMessage::ClientRequest {
-                        request_id,
-                        payload: payload.clone(),
-                    },
-                    leader_addr,
-                )
-                .await
-                .unwrap();
-
-                return Ok(());
-            }
-            _ => {
-                message = "Request is handled by follower";
-                result = self.store.process_request(&operation);
-                if result.is_empty() {
-                    println!("Fetching data from cluster");
-                    result = self
-                        .get_from_cluster(
-                            &("".to_string()
-                                + &operation.kv.key
-                                + ".."
-                                + &self.address.ip.to_string()
-                                + ".."
-                                + &self.address.port.to_string()
-                                + ".log"),
-                            &operation.kv.key,
-                        )
-                        .await
-                        .expect("Failed to get data from cluster");
-                    println!("Fetching data from done");
-                }
-
-                let response = format!(
-                    "Request ID: {}\nMessage: {}\nReply: {}.",
-                    self.request_id, message, result
-                );
-                self.socket
-                    .send_to(response.as_bytes(), src_addr)
-                    .await
-                    .unwrap();
-
-                Ok(())
-            }
-        }
     }
 
     pub async fn follower_handle_follower_register_reply(
