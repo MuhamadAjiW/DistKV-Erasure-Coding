@@ -171,6 +171,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "distkv"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "memcache",
+ "rand",
+ "reed-solomon-erasure",
+ "rust-rocksdb",
+ "serde",
+ "serde_derive",
+ "tokio",
+]
+
+[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -658,20 +672,6 @@ dependencies = [
  "redox_syscall 0.5.7",
  "smallvec",
  "windows-targets",
-]
-
-[[package]]
-name = "paxos-rust"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "memcache",
- "rand",
- "reed-solomon-erasure",
- "rust-rocksdb",
- "serde",
- "serde_derive",
- "tokio",
 ]
 
 [[package]]

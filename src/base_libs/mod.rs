@@ -1,5 +1,3 @@
-pub mod address;
-pub mod paxos;
-pub mod paxos_follower;
-pub mod paxos_leader;
-pub mod operation;
+pub mod _operation;
+pub mod _paxos_types;
+pub mod network;

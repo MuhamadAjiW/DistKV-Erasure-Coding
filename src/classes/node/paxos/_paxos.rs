@@ -1,10 +1,12 @@
-use crate::{
-    classes::node::Node,
-    types::{FollowerRegistrationReply, FollowerRegistrationRequest},
-};
 use std::{fmt, io, u64};
 
-use super::operation::Operation;
+use crate::{
+    base_libs::{
+        _operation::Operation,
+        _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest},
+    },
+    classes::node::_node::Node,
+};
 
 // ---PaxosState---
 pub enum PaxosState {

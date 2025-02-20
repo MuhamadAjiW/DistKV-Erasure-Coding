@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::base_libs::operation::Operation;
+use super::_operation::Operation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FollowerRegistrationRequest {

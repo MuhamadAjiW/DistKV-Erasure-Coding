@@ -1,13 +1,13 @@
 use std::{io, thread::sleep, time::Duration};
 
 use crate::{
-    base_libs::operation::OperationType,
-    classes::node::Node,
-    network::send_message,
-    types::{FollowerRegistrationReply, FollowerRegistrationRequest, PaxosMessage},
+    base_libs::{
+        _operation::{Operation, OperationType},
+        _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest, PaxosMessage},
+        network::_messages::send_message,
+    },
+    classes::node::_node::Node,
 };
-
-use super::operation::Operation;
 
 impl Node {
     // ---Active Commands---

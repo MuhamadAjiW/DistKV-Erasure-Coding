@@ -1,5 +1,6 @@
 use reed_solomon_erasure::{galois_8::Field, ReedSolomon};
 
+#[derive(Clone)]
 pub struct ECService {
     pub shard_count: usize,
     pub parity_count: usize,

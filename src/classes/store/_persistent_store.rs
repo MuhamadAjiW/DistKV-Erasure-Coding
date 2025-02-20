@@ -1,0 +1,54 @@
+use rust_rocksdb::DB;
+
+use crate::base_libs::_operation::{Operation, OperationType};
+
+pub struct PersistentStore {
+    rocks_db: DB,
+}
+
+impl PersistentStore {
+    pub fn new(db_path: &str) -> Self {
+        return PersistentStore {
+            rocks_db: DB::open_default(db_path).expect("Failed to open RocksDB"),
+        };
+    }
+
+    pub fn set(&mut self, key: &str, value: &Vec<u8>) -> () {
+        self.rocks_db
+            .put(key, value)
+            .expect("Failed to set RocksDB");
+    }
+
+    pub fn get(&self, key: &str) -> Option<Vec<u8>> {
+        if let Ok(Some(value)) = self.rocks_db.get(key) {
+            return Some(value);
+        } else {
+            return None;
+        }
+    }
+
+    pub fn remove(&mut self, key: &str) -> () {
+        self.rocks_db
+            .delete(key)
+            .expect("Failed to delete from RocksDB");
+    }
+
+    pub fn process_request(&mut self, request: &Operation) -> Option<Vec<u8>> {
+        let mut response: Option<Vec<u8>> = None;
+
+        match request.op_type {
+            OperationType::GET => {
+                response = self.get(&request.kv.key);
+            }
+            OperationType::SET => {
+                self.set(&request.kv.key, &request.kv.value);
+            }
+            OperationType::DELETE => {
+                self.remove(&request.kv.key);
+            }
+            _ => {}
+        }
+
+        response
+    }
+}

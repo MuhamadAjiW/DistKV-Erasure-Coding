@@ -6,12 +6,14 @@ use std::{
 use tokio::net::UdpSocket;
 
 use crate::{
-    base_libs::{address::Address, paxos::PaxosState},
-    network::receive_message,
-    types::PaxosMessage,
+    base_libs::{
+        _paxos_types::PaxosMessage,
+        network::{_address::Address, _messages::receive_message},
+    },
+    classes::{ec::_ec_service::ECService, store::_storage_controller::StorageController},
 };
 
-use super::{erasure_coding::ECService, store::Store};
+use super::paxos::_paxos::PaxosState;
 
 pub struct Node {
     // Base attributes
@@ -28,8 +30,8 @@ pub struct Node {
     pub request_id: u64,
 
     // Application attributes
-    pub store: Store,
-    pub ec: ECService,
+    pub store: StorageController<'static>,
+    pub ec: Arc<ECService>,
     pub ec_active: bool,
 }
 
@@ -49,11 +51,11 @@ impl Node {
         let cluster_index = std::usize::MAX;
         let memcached_url = format!("memcached://{}:{}", address.ip, address.port + 10000);
 
-        let store = Store::new(&address.to_string(), &memcached_url);
+        let ec = Arc::new(ECService::new(shard_count, parity_count));
+        let store = StorageController::new(&address.to_string(), &memcached_url, None);
         let request_id = 0;
-        let ec = ECService::new(shard_count, parity_count);
 
-        return Node {
+        let mut node = Node {
             address,
             socket,
             running,
@@ -67,6 +69,10 @@ impl Node {
             ec,
             ec_active,
         };
+        let node_ref = &node as *const _;
+        node.store.assign_node(unsafe { &*node_ref });
+
+        node
     }
 
     pub async fn run(&mut self) -> Result<(), io::Error> {

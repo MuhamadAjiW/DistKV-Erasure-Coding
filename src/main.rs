@@ -1,15 +1,3 @@
-use std::io;
-
-use base_libs::{address::Address, paxos::PaxosState};
-use classes::node::Node;
-use tokio::net::UdpSocket;
-
-mod base_libs;
-mod classes;
-mod load_balancer;
-mod network;
-mod types;
-
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
     let role = std::env::args().nth(1).expect("No role provided");
@@ -85,7 +73,7 @@ async fn main() -> Result<(), io::Error> {
             node.run().await?;
         }
         "load_balancer" => {
-            let mut lb = load_balancer::LoadBalancer::new(); // Declare lb as mutable
+            let mut lb = _load_balancer::LoadBalancer::new(); // Declare lb as mutable
             let load_balancer_addr_input = std::env::args()
                 .nth(2)
                 .expect("No load balancer address provided");

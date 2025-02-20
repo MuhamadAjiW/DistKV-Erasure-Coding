@@ -1,7 +1,8 @@
-use crate::types::PaxosMessage;
 use bincode;
 use tokio::io;
 use tokio::net::UdpSocket;
+
+use crate::base_libs::_paxos_types::PaxosMessage;
 
 pub async fn send_message(socket: &UdpSocket, message: PaxosMessage, addr: &str) -> io::Result<()> {
     let serialized = bincode::serialize(&message).unwrap();

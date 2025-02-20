@@ -1,7 +1,7 @@
-use crate::network::send_message;
-use crate::types::PaxosMessage;
 use std::sync::{Arc, Mutex};
 use tokio::net::UdpSocket;
+
+use crate::base_libs::{_paxos_types::PaxosMessage, network::_messages::send_message};
 
 pub struct LoadBalancer {
     leader_addr: Option<String>, // Handle dynamic leader registration

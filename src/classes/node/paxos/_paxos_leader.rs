@@ -6,10 +6,12 @@ use tokio::{
 };
 
 use crate::{
-    base_libs::operation::{BinKV, Operation, OperationType},
-    classes::node::Node,
-    network::{receive_message, send_message},
-    types::{FollowerRegistrationReply, FollowerRegistrationRequest, PaxosMessage},
+    base_libs::{
+        _operation::{BinKV, Operation, OperationType},
+        _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest, PaxosMessage},
+        network::_messages::{receive_message, send_message},
+    },
+    classes::node::_node::Node,
 };
 
 impl Node {
