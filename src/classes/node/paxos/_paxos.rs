@@ -2,7 +2,7 @@ use std::{fmt, io, u64};
 
 use crate::{
     base_libs::{
-        _operation::{Operation, OperationType},
+        _operation::Operation,
         _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest},
     },
     classes::node::_node::Node,
@@ -53,53 +53,6 @@ impl Node {
                     .await
             }
         }
-
-        Ok(())
-    }
-    pub async fn handle_client_request(
-        &mut self,
-        _src_addr: &String,
-        _request_id: u64,
-        payload: &Vec<u8>,
-    ) -> Result<(), io::Error> {
-        let req = Operation::parse(payload);
-        if matches!(req, None) {
-            println!("Request was invalid, dropping request");
-            return Ok(());
-        }
-        let operation = req.unwrap();
-        let result: String;
-        let message: &str;
-        let initial_request_id = self.request_id;
-        let load_balancer_addr = &self.load_balancer_address.to_string() as &str;
-
-        match operation.op_type {
-            OperationType::BAD => {
-                message = "Request is handled by leader";
-                result = "Invalid request".to_string();
-            }
-            OperationType::PING => {
-                message = "Request is handled by leader";
-                result = "PONG".to_string();
-            }
-            OperationType::GET | OperationType::DELETE | OperationType::SET => {
-                message = "Request is handled by leader";
-                result = self
-                    .store
-                    .process_request(&operation)
-                    .await
-                    .unwrap_or_default();
-            }
-        }
-
-        let response = format!(
-            "Request ID: {}\nMessage: {}\nReply: {}.",
-            initial_request_id, message, result
-        );
-        self.socket
-            .send_to(response.as_bytes(), load_balancer_addr)
-            .await
-            .unwrap();
 
         Ok(())
     }

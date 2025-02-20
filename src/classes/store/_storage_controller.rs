@@ -1,23 +1,5 @@
-use std::{
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
-
-use tokio::{
-    sync::{Notify, RwLock},
-    task::JoinSet,
-    time::timeout,
-};
-
 use crate::{
-    base_libs::{
-        _operation::{BinKV, Operation, OperationType},
-        _paxos_types::PaxosMessage,
-        network::_messages::{receive_message, send_message},
-    },
+    base_libs::_operation::{BinKV, Operation, OperationType},
     classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
@@ -65,6 +47,7 @@ impl<'a> StorageController<'a> {
                     PaxosState::Follower => {
                         let serialized_request = bincode::serialize(request).unwrap();
                         node.forward_to_leader(serialized_request).await;
+                        response = Some("FORWARDED".to_string());
                     }
                     PaxosState::Leader => {
                         response = self.update_value(&request).await;
@@ -97,8 +80,8 @@ impl<'a> StorageController<'a> {
                     followers_guard.iter().cloned().collect()
                 };
 
-                let mut recovery: Vec<Option<Vec<u8>>> = self
-                    .broadcast_get_value(&follower_list, &Some(value), key)
+                let mut recovery: Vec<Option<Vec<u8>>> = node
+                    .broadcast_get_shards(&follower_list, &Some(value), key)
                     .await;
 
                 for ele in recovery.clone() {
@@ -115,101 +98,13 @@ impl<'a> StorageController<'a> {
                     .join("");
             }
             None => {
+                // _TODO: Handle partially missing shard
                 println!("No value found");
             }
         }
         self.memory.set(key, &result);
 
         Ok(result)
-    }
-
-    async fn broadcast_get_value(
-        &self,
-        follower_list: &Vec<String>,
-        own_shard: &Option<Vec<u8>>,
-        key: &str,
-    ) -> Vec<Option<Vec<u8>>> {
-        let node = match self.node {
-            Some(ref n) => n,
-            None => return vec![],
-        };
-
-        let recovery_shards = Arc::new(RwLock::new(vec![
-            None;
-            node.ec.shard_count + node.ec.parity_count
-        ]));
-        recovery_shards.write().await[node.cluster_index] = own_shard.clone();
-
-        let size = follower_list.len();
-        let response_count = Arc::new(AtomicUsize::new(1));
-        let required_count = node.ec.shard_count;
-        let notify = Arc::new(Notify::new());
-
-        let mut tasks = JoinSet::new();
-
-        for follower_addr in follower_list.iter() {
-            let socket = Arc::clone(&node.socket);
-            let key = key.to_string();
-            let follower_addr = follower_addr.clone();
-            let notify = Arc::clone(&notify);
-            let recovery_shards = Arc::clone(&recovery_shards);
-            let response_count = Arc::clone(&response_count);
-
-            tasks.spawn(async move {
-                if let Err(_e) = send_message(
-                    &socket,
-                    PaxosMessage::RecoveryRequest { key },
-                    follower_addr.as_str(),
-                )
-                .await
-                {
-                    println!(
-                        "Failed to broadcast request to follower at {}",
-                        follower_addr
-                    );
-                    return;
-                }
-                // println!("Broadcasted request to follower at {}", follower_addr);
-
-                match timeout(Duration::from_secs(2), receive_message(&socket)).await {
-                    Ok(Ok((ack, _))) => {
-                        if let PaxosMessage::RecoveryReply { index, payload } = ack {
-                            // println!("Received acknowledgment from {} ({})", follower_addr, index);
-
-                            if index < size {
-                                let mut shards = recovery_shards.write().await;
-                                shards[index] = Some(payload);
-
-                                let count = response_count.fetch_add(1, Ordering::SeqCst);
-                                if count >= required_count {
-                                    notify.notify_one();
-                                }
-                            }
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        println!(
-                            "Error receiving acknowledgment from {}: {}",
-                            follower_addr, e
-                        );
-                    }
-                    Err(_) => {
-                        println!("Timeout waiting for acknowledgment from {}", follower_addr);
-                    }
-                }
-            });
-        }
-
-        // Process tasks and exit early if enough responses are gathered
-        while response_count.load(Ordering::SeqCst) < required_count {
-            tokio::select! {
-                Some(_) = tasks.join_next() => {},
-                _ = notify.notified() => break
-            }
-        }
-
-        let recovery_shards = recovery_shards.read().await;
-        recovery_shards.clone()
     }
 
     pub async fn update_value(&mut self, operation: &Operation) -> Option<String> {
@@ -250,6 +145,7 @@ impl<'a> StorageController<'a> {
 
             if acks >= majority {
                 println!("Request succeeded: Accept broadcast is accepted by majority");
+                return Some("OK".to_string());
             } else {
                 println!("Request failed: Accept broadcast is not accepted by majority");
             }
@@ -257,6 +153,6 @@ impl<'a> StorageController<'a> {
             println!("Request failed: Prepare broadcast is not accepted by majority");
         }
 
-        return Some("".to_string());
+        return Some("FAILED".to_string());
     }
 }

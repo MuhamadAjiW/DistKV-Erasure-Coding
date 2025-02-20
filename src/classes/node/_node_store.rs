@@ -1,9 +1,19 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
-use tokio::{task::JoinSet, time::timeout};
+use tokio::{
+    sync::{Notify, RwLock},
+    task::JoinSet,
+    time::timeout,
+};
 
 use crate::base_libs::{
-    _operation::{BinKV, Operation},
+    _operation::{BinKV, Operation, OperationType},
     _paxos_types::PaxosMessage,
     network::_messages::{receive_message, send_message},
 };
@@ -11,6 +21,54 @@ use crate::base_libs::{
 use super::_node::Node;
 
 impl Node {
+    pub async fn handle_client_request(
+        &mut self,
+        _src_addr: &String,
+        _request_id: u64,
+        payload: &Vec<u8>,
+    ) -> () {
+        let req = Operation::parse(payload);
+        if matches!(req, None) {
+            println!("Request was invalid, dropping request");
+            return ();
+        }
+        let operation = req.unwrap();
+        let result: String;
+        let message: &str;
+        let initial_request_id = self.request_id;
+        let load_balancer_addr = &self.load_balancer_address.to_string() as &str;
+
+        match operation.op_type {
+            OperationType::BAD => {
+                message = "Request is handled by leader";
+                result = "Invalid request".to_string();
+            }
+            OperationType::PING => {
+                message = "Request is handled by leader";
+                result = "PONG".to_string();
+            }
+            OperationType::GET | OperationType::DELETE | OperationType::SET => {
+                message = "Request is handled by leader";
+                result = self
+                    .store
+                    .process_request(&operation)
+                    .await
+                    .unwrap_or_default();
+            }
+        }
+
+        let response = format!(
+            "Request ID: {}\nMessage: {}\nReply: {}.",
+            initial_request_id, message, result
+        );
+        self.socket
+            .send_to(response.as_bytes(), load_balancer_addr)
+            .await
+            .unwrap();
+
+        ()
+    }
+
     pub async fn handle_recovery_request(&self, src_addr: &String, key: &str) {
         match self.store.persistent.get(key) {
             Some(value) => {
@@ -275,5 +333,89 @@ impl Node {
         }
 
         acks
+    }
+
+    pub async fn broadcast_get_shards(
+        &self,
+        follower_list: &Vec<String>,
+        own_shard: &Option<Vec<u8>>,
+        key: &str,
+    ) -> Vec<Option<Vec<u8>>> {
+        let recovery_shards = Arc::new(RwLock::new(vec![
+            None;
+            self.ec.shard_count + self.ec.parity_count
+        ]));
+        recovery_shards.write().await[self.cluster_index] = own_shard.clone();
+
+        let size = follower_list.len();
+        let response_count = Arc::new(AtomicUsize::new(1));
+        let required_count = self.ec.shard_count;
+        let notify = Arc::new(Notify::new());
+
+        let mut tasks = JoinSet::new();
+
+        for follower_addr in follower_list.iter() {
+            let socket = Arc::clone(&self.socket);
+            let key = key.to_string();
+            let follower_addr = follower_addr.clone();
+            let notify = Arc::clone(&notify);
+            let recovery_shards = Arc::clone(&recovery_shards);
+            let response_count = Arc::clone(&response_count);
+
+            tasks.spawn(async move {
+                if let Err(_e) = send_message(
+                    &socket,
+                    PaxosMessage::RecoveryRequest { key },
+                    follower_addr.as_str(),
+                )
+                .await
+                {
+                    println!(
+                        "Failed to broadcast request to follower at {}",
+                        follower_addr
+                    );
+                    return;
+                }
+                // println!("Broadcasted request to follower at {}", follower_addr);
+
+                match timeout(Duration::from_secs(2), receive_message(&socket)).await {
+                    Ok(Ok((ack, _))) => {
+                        if let PaxosMessage::RecoveryReply { index, payload } = ack {
+                            // println!("Received acknowledgment from {} ({})", follower_addr, index);
+
+                            if index < size {
+                                let mut shards = recovery_shards.write().await;
+                                shards[index] = Some(payload);
+
+                                let count = response_count.fetch_add(1, Ordering::SeqCst);
+                                if count >= required_count {
+                                    notify.notify_one();
+                                }
+                            }
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        println!(
+                            "Error receiving acknowledgment from {}: {}",
+                            follower_addr, e
+                        );
+                    }
+                    Err(_) => {
+                        println!("Timeout waiting for acknowledgment from {}", follower_addr);
+                    }
+                }
+            });
+        }
+
+        // Process tasks and exit early if enough responses are gathered
+        while response_count.load(Ordering::SeqCst) < required_count {
+            tokio::select! {
+                Some(_) = tasks.join_next() => {},
+                _ = notify.notified() => break
+            }
+        }
+
+        let recovery_shards = recovery_shards.read().await;
+        recovery_shards.clone()
     }
 }

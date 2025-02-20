@@ -114,19 +114,6 @@ impl Node {
                         .await?;
                 }
 
-                // Client messages
-                PaxosMessage::ClientRequest {
-                    request_id,
-                    payload,
-                } => {
-                    self.handle_client_request(&src_addr, request_id, &payload)
-                        .await?;
-                }
-
-                PaxosMessage::FollowerAck { request_id } => {
-                    self.handle_follower_ack(&src_addr, request_id).await
-                }
-
                 PaxosMessage::FollowerRegisterRequest(follower) => {
                     self.handle_follower_register_request(&src_addr, &follower)
                         .await
@@ -135,6 +122,19 @@ impl Node {
                 PaxosMessage::FollowerRegisterReply(follower) => {
                     self.handle_follower_register_reply(&src_addr, &follower)
                         .await
+                }
+
+                PaxosMessage::FollowerAck { request_id } => {
+                    self.handle_follower_ack(&src_addr, request_id).await
+                }
+
+                // Client messages
+                PaxosMessage::ClientRequest {
+                    request_id,
+                    payload,
+                } => {
+                    self.handle_client_request(&src_addr, request_id, &payload)
+                        .await;
                 }
 
                 PaxosMessage::RecoveryRequest { key } => {
