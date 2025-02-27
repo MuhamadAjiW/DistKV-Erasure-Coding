@@ -40,7 +40,7 @@ follower() {
       addr="0.0.0.0"
     fi
 
-  local command="cargo run -- follower ${addr}:${port} ${leader_addr} ${lb_addr} ${shard_count} ${parity_count}"
+  local command="cargo run -- follower ${addr}:${port} ${leader_addr} ${lb_addr} ${shard_count} ${parity_count} > ./log/follower_${addr}_${port}.log"
 
   echo "Starting follower on ${addr}:${port}"
 
@@ -80,7 +80,7 @@ leader() {
         addr="0.0.0.0"
     fi
 
-    local command="cargo run -- leader ${addr}:${port} ${lb_addr} ${shard_count} ${parity_count}"
+    local command="cargo run -- leader ${addr}:${port} ${lb_addr} ${shard_count} ${parity_count} > ./log/leader_${addr}_${port}.log"
     
     echo "Starting leader on ${addr}:${port}"
 
@@ -95,7 +95,7 @@ load_balancer() {
         addr="0.0.0.0"
     fi
 
-    local command="cargo run -- load_balancer ${addr}:${port}"
+    local command="cargo run -- load_balancer ${addr}:${port} > ./log/load_balancer_${addr}_${port}.log"
     
     echo "Starting load balancer on ${addr}:${port}"
 

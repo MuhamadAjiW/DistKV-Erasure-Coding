@@ -22,11 +22,15 @@ use super::_node::Node;
 
 impl Node {
     pub async fn forward_to_leader(&self, payload: Vec<u8>) {
+        println!(
+            "[FORWARD] Forwarding request to leader at {}",
+            self.leader_address
+        );
         send_message(
             &self.socket,
             PaxosMessage::ClientRequest {
                 request_id: self.request_id,
-                payload: payload.clone(),
+                payload: payload,
             },
             &self.leader_address.to_string() as &str,
         )
@@ -186,6 +190,8 @@ impl Node {
     ) -> usize {
         if self.ec_active {
             let encoded_shard = self.ec.encode(&operation.kv.value);
+            println!("Encoded shards: {:?}", encoded_shard);
+            println!("Cluster index: {}", self.cluster_index);
             self.store.persistent.process_request(&Operation {
                 op_type: operation.op_type.clone(),
                 kv: BinKV {

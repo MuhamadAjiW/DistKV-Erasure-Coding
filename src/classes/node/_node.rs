@@ -69,8 +69,8 @@ impl Node {
             ec,
             ec_active,
         };
-        let node_ref = &mut node as *mut _;
-        node.store.assign_node(unsafe { &mut *node_ref });
+        let node_ptr = &mut node as *mut Node;
+        node.store.assign_node(unsafe { &mut *node_ptr });
 
         node
     }
@@ -78,16 +78,17 @@ impl Node {
     // Main Event Loop
     pub async fn run(&mut self) -> Result<(), io::Error> {
         println!("Starting node...");
-        self.print_info();
         self.running = true;
 
         match self.state {
             PaxosState::Follower => {
+                println!("[SETUP] Setting up as follower...");
                 if !self.follower_send_register().await {
                     return Ok(());
                 }
             }
             PaxosState::Leader => {
+                println!("[SETUP] Setting up as leader...");
                 let mut followers_guard = self.cluster_list.lock().unwrap();
                 followers_guard.push(self.address.to_string());
 
@@ -95,6 +96,8 @@ impl Node {
             }
         }
 
+        self.print_info();
+        self.store.node.as_ref().unwrap().print_info();
         while self.running {
             let (message, src_addr) = receive_message(&self.socket).await.unwrap();
 
@@ -185,11 +188,17 @@ impl Node {
 
     // Information logging
     pub fn print_info(&self) {
-        println!("Node info:");
+        println!("-------------------------------------");
+        println!("[INFO] Node info:");
         println!("Address: {}", self.address.to_string());
         println!("Leader: {}", self.leader_address.to_string());
         println!("Load Balancer: {}", self.load_balancer_address.to_string());
         println!("State: {}", self.state.to_string());
         println!("Erasure Coding: {}", self.ec_active.to_string());
+        println!("Shard count: {}", self.ec.shard_count);
+        println!("Parity count: {}", self.ec.parity_count);
+        println!("Cluster list: {:?}", self.cluster_list.lock().unwrap());
+        println!("Cluster index: {}", self.cluster_index);
+        println!("-------------------------------------");
     }
 }

@@ -102,6 +102,12 @@ impl Operation {
 
 impl fmt::Display for Operation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {} {:?}", self.op_type, self.kv.key, self.kv.value)
+        write!(
+            f,
+            "{} {} {}",
+            self.op_type,
+            self.kv.key,
+            String::from_utf8_lossy(&self.kv.value)
+        )
     }
 }

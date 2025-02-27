@@ -45,8 +45,13 @@ impl<'a> StorageController<'a> {
 
                 match node.state {
                     PaxosState::Follower => {
-                        let serialized_request = bincode::serialize(request).unwrap();
-                        node.forward_to_leader(serialized_request).await;
+                        println!(
+                            "[FORWARD] Forwarding request to leader: {}",
+                            request.to_string()
+                        );
+                        // let serialized_request = bincode::serialize(request).unwrap();
+                        let string_payload = request.to_string();
+                        node.forward_to_leader(string_payload.into_bytes()).await;
                         response = Some("FORWARDED".to_string());
                     }
                     PaxosState::Leader => {
