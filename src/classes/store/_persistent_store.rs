@@ -13,7 +13,7 @@ impl PersistentStore {
         };
     }
 
-    pub fn set(&mut self, key: &str, value: &Vec<u8>) -> () {
+    pub fn set(&self, key: &str, value: &Vec<u8>) -> () {
         self.rocks_db
             .put(key, value)
             .expect("Failed to set RocksDB");
@@ -27,13 +27,13 @@ impl PersistentStore {
         }
     }
 
-    pub fn remove(&mut self, key: &str) -> () {
+    pub fn remove(&self, key: &str) -> () {
         self.rocks_db
             .delete(key)
             .expect("Failed to delete from RocksDB");
     }
 
-    pub fn process_request(&mut self, request: &Operation) -> Option<Vec<u8>> {
+    pub fn process_request(&self, request: &Operation) -> Option<Vec<u8>> {
         let mut response: Option<Vec<u8>> = None;
 
         match request.op_type {

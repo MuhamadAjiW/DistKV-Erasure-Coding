@@ -7,42 +7,31 @@ use super::{_memory_store::MemoryStore, _persistent_store::PersistentStore};
 
 // _NOTE: Storage Controller should only be used inside node that owns it
 // It may cause memory problems otherwise
-pub struct StorageController<'a> {
+pub struct StorageController {
     pub persistent: PersistentStore,
     pub memory: MemoryStore,
-    pub node: Option<&'a mut Node>, // Dependency injection 'a
 }
 
-impl<'a> StorageController<'a> {
-    pub fn new(db_path: &str, memcached_url: &str, node: Option<&'a mut Node>) -> Self {
+impl StorageController {
+    pub fn new(db_path: &str, memcached_url: &str) -> Self {
         StorageController {
             persistent: PersistentStore::new(db_path),
             memory: MemoryStore::new(memcached_url),
-            node,
         }
     }
 
-    pub fn assign_node(&mut self, node: &'a mut Node) {
-        self.node = Some(node);
-    }
-
-    pub async fn process_request(&mut self, request: &Operation) -> Option<String> {
+    pub async fn process_request(&self, request: &Operation, node: &Node) -> Option<String> {
         let mut response: Option<String> = None;
 
         match request.op_type {
             OperationType::GET => {
                 response = self.memory.get(&request.kv.key);
                 if response.is_none() {
-                    let recovered = self.get_from_cluster(&request.kv.key).await;
+                    let recovered = self.get_from_cluster(&request.kv.key, node).await;
                     response = Some(recovered.unwrap_or_default());
                 }
             }
             OperationType::SET | OperationType::DELETE => {
-                let node = match &self.node {
-                    Some(n) => n,
-                    None => return None,
-                };
-
                 match node.state {
                     PaxosState::Follower => {
                         println!(
@@ -55,7 +44,7 @@ impl<'a> StorageController<'a> {
                         response = Some("FORWARDED".to_string());
                     }
                     PaxosState::Leader => {
-                        response = self.update_value(&request).await;
+                        response = self.update_value(&request, node).await;
                     }
                 }
             }
@@ -67,16 +56,13 @@ impl<'a> StorageController<'a> {
 }
 
 // EC logic
-impl<'a> StorageController<'a> {
+impl StorageController {
     pub async fn get_from_cluster(
-        &mut self,
+        &self,
         key: &String,
+        node: &Node,
     ) -> Result<String, reed_solomon_erasure::Error> {
         let mut result: String = String::new();
-        let node = match self.node {
-            Some(ref n) => n,
-            None => return Ok(String::new()),
-        };
 
         match self.persistent.get(key) {
             Some(value) => {
@@ -112,12 +98,7 @@ impl<'a> StorageController<'a> {
         Ok(result)
     }
 
-    pub async fn update_value(&mut self, operation: &Operation) -> Option<String> {
-        let node = match self.node {
-            Some(ref n) => n,
-            None => return None,
-        };
-
+    pub async fn update_value(&self, operation: &Operation, node: &Node) -> Option<String> {
         let follower_list: Vec<String> = {
             let followers_guard = node.cluster_list.lock().unwrap();
             followers_guard.iter().cloned().collect()

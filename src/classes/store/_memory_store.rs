@@ -13,7 +13,7 @@ impl MemoryStore {
         };
     }
 
-    pub fn set(&mut self, key: &str, value: &str) -> () {
+    pub fn set(&self, key: &str, value: &str) -> () {
         self.memcached
             .set(key, value, 0)
             .expect("Failed to set memcached");
@@ -27,13 +27,13 @@ impl MemoryStore {
         }
     }
 
-    pub fn remove(&mut self, key: &str) -> () {
+    pub fn remove(&self, key: &str) -> () {
         self.memcached
             .delete(key)
             .expect("Failed to delete from memcached");
     }
 
-    pub fn process_request(&mut self, request: &Operation) -> Option<String> {
+    pub fn process_request(&self, request: &Operation) -> Option<String> {
         let mut response: Option<String> = None;
 
         match request.op_type {

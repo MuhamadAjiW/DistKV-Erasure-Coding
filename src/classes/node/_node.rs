@@ -30,7 +30,7 @@ pub struct Node {
     pub request_id: u64,
 
     // Application attributes
-    pub store: StorageController<'static>,
+    pub store: StorageController,
     pub ec: Arc<ECService>,
     pub ec_active: bool,
 }
@@ -52,10 +52,10 @@ impl Node {
         let memcached_url = format!("memcache://{}:{}", address.ip, address.port + 10000);
 
         let ec = Arc::new(ECService::new(shard_count, parity_count));
-        let store = StorageController::new(&address.to_string(), &memcached_url, None);
+        let store = StorageController::new(&address.to_string(), &memcached_url);
         let request_id = 0;
 
-        let mut node = Node {
+        let node = Node {
             address,
             socket,
             running,
@@ -69,8 +69,6 @@ impl Node {
             ec,
             ec_active,
         };
-        let node_ptr = &mut node as *mut Node;
-        node.store.assign_node(unsafe { &mut *node_ptr });
 
         node
     }
@@ -97,9 +95,14 @@ impl Node {
         }
 
         self.print_info();
-        self.store.node.as_ref().unwrap().print_info();
         while self.running {
-            let (message, src_addr) = receive_message(&self.socket).await.unwrap();
+            let (message, src_addr) = match receive_message(&self.socket).await {
+                Ok(msg) => msg,
+                Err(_) => {
+                    println!("[ERROR] Received bad message on socket, continuing...");
+                    continue;
+                }
+            };
 
             match message {
                 // Paxos messages

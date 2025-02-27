@@ -39,7 +39,7 @@ impl Node {
     }
 
     pub async fn handle_client_request(
-        &mut self,
+        &self,
         _src_addr: &String,
         _request_id: u64,
         payload: &Vec<u8>,
@@ -68,7 +68,7 @@ impl Node {
                 println!("Received request: {:?}", operation);
                 result = self
                     .store
-                    .process_request(&operation)
+                    .process_request(&operation, &self)
                     .await
                     .unwrap_or_default();
             }
