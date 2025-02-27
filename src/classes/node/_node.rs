@@ -49,7 +49,7 @@ impl Node {
         let running = false;
         let cluster_list = Arc::new(Mutex::new(Vec::new()));
         let cluster_index = std::usize::MAX;
-        let memcached_url = format!("memcached://{}:{}", address.ip, address.port + 10000);
+        let memcached_url = format!("memcache://{}:{}", address.ip, address.port + 10000);
 
         let ec = Arc::new(ECService::new(shard_count, parity_count));
         let store = StorageController::new(&address.to_string(), &memcached_url, None);
@@ -101,6 +101,10 @@ impl Node {
             match message {
                 // Paxos messages
                 PaxosMessage::LeaderRequest { request_id } => {
+                    println!(
+                        "[REQUEST] Received LeaderRequest from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_leader_request(&src_addr, request_id).await
                 }
 
@@ -108,21 +112,37 @@ impl Node {
                     request_id,
                     operation,
                 } => {
+                    println!(
+                        "[REQUEST] Received LeaderAccepted from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_leader_accepted(&src_addr, request_id, &operation)
                         .await?;
                 }
 
                 PaxosMessage::FollowerRegisterRequest(follower) => {
+                    println!(
+                        "[REQUEST] Received FollowerRegisterRequest from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_follower_register_request(&src_addr, &follower)
                         .await
                 }
 
                 PaxosMessage::FollowerRegisterReply(follower) => {
+                    println!(
+                        "[REQUEST] Received FollowerRegisterReply from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_follower_register_reply(&src_addr, &follower)
                         .await
                 }
 
                 PaxosMessage::FollowerAck { request_id } => {
+                    println!(
+                        "[REQUEST] Received FollowerAck from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_follower_ack(&src_addr, request_id).await
                 }
 
@@ -131,11 +151,19 @@ impl Node {
                     request_id,
                     payload,
                 } => {
+                    println!(
+                        "[REQUEST] Received ClientRequest from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_client_request(&src_addr, request_id, &payload)
                         .await;
                 }
 
                 PaxosMessage::RecoveryRequest { key } => {
+                    println!(
+                        "[REQUEST] Received RecoveryRequest from {}",
+                        src_addr.to_string()
+                    );
                     self.handle_recovery_request(&src_addr, &key).await
                 }
 
@@ -143,7 +171,12 @@ impl Node {
                 PaxosMessage::RecoveryReply {
                     index: _,
                     payload: _,
-                } => {}
+                } => {
+                    println!(
+                        "[REQUEST] Received RecoveryReply from {}",
+                        src_addr.to_string()
+                    );
+                }
             }
         }
 

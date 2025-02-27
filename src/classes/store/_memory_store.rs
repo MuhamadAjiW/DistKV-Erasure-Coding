@@ -9,7 +9,7 @@ pub struct MemoryStore {
 impl MemoryStore {
     pub fn new(memcached_url: &str) -> Self {
         return MemoryStore {
-            memcached: Client::connect(memcached_url).expect("Failed to connect to memcached"),
+            memcached: memcache::connect(memcached_url).unwrap(),
         };
     }
 

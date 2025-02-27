@@ -53,12 +53,15 @@ impl Node {
 
         match operation.op_type {
             OperationType::BAD => {
+                println!("Invalid request");
                 result = "Invalid request".to_string();
             }
             OperationType::PING => {
+                println!("Received PING request");
                 result = "PONG".to_string();
             }
             OperationType::GET | OperationType::DELETE | OperationType::SET => {
+                println!("Received request: {:?}", operation);
                 result = self
                     .store
                     .process_request(&operation)
@@ -71,6 +74,8 @@ impl Node {
             "Request ID: {}\nMessage: {}\nReply: {}.",
             initial_request_id, message, result
         );
+        println!("{}", response);
+
         self.socket
             .send_to(response.as_bytes(), load_balancer_addr)
             .await

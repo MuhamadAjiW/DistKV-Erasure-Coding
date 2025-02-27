@@ -133,7 +133,7 @@ run_all() {
 # Memcached
 run_memcached() {
     local instances="${1:-6}"
-    local base_port="${2:-11211}"
+    local base_port="${2:-18080}"
     local memory="${3:-64}"
     local PIDS=()
 

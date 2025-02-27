@@ -91,6 +91,7 @@ async fn main() -> Result<(), io::Error> {
             lb.listen_and_route(&load_balancer_addr_input).await; // Call listen_and_route with mutable reference
         }
         "client" => {
+            println!("Client starting...");
             let load_balancer_addr_input = std::env::args()
                 .nth(2)
                 .expect("No load balancer address provided");
@@ -116,8 +117,10 @@ async fn main() -> Result<(), io::Error> {
             let socket = UdpSocket::bind("127.0.0.1:50000")
                 .await
                 .expect("Failed to bind socket");
+            println!("Sending message to {}...", load_balancer_addr_input);
             socket.send_to(&data, load_balancer_addr_input).await?;
 
+            println!("Waiting for response...",);
             let mut buf = [0; 65536];
             let (size, client_addr) = socket.recv_from(&mut buf).await.unwrap();
             let message = String::from_utf8_lossy(&buf[..size]).to_string();
