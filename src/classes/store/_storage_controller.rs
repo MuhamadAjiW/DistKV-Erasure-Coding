@@ -1,5 +1,5 @@
 use crate::{
-    base_libs::_operation::{Operation, OperationType},
+    base_libs::_operation::{BinKV, Operation, OperationType},
     classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
@@ -114,7 +114,7 @@ impl<'a> StorageController<'a> {
 
     pub async fn update_value(&mut self, operation: &Operation) -> Option<String> {
         let node = match self.node {
-            Some(ref mut n) => n,
+            Some(ref n) => n,
             None => return None,
         };
 
@@ -128,7 +128,25 @@ impl<'a> StorageController<'a> {
 
         if acks >= majority {
             self.memory.process_request(&operation);
-            acks = node.broadcast_accept(&follower_list, operation).await;
+            if node.ec_active {
+                let encoded_shard = node.ec.encode(&operation.kv.value);
+                self.persistent.process_request(&Operation {
+                    op_type: operation.op_type.clone(),
+                    kv: BinKV {
+                        key: operation.kv.key.clone(),
+                        value: encoded_shard[node.cluster_index].clone(),
+                    },
+                });
+
+                acks = node
+                    .broadcast_accept_ec(&follower_list, operation, &encoded_shard)
+                    .await
+            } else {
+                self.persistent.process_request(operation);
+                acks = node
+                    .broadcast_accept_replication(&follower_list, operation)
+                    .await
+            }
 
             if acks >= majority {
                 println!("Request succeeded: Accept broadcast is accepted by majority");
