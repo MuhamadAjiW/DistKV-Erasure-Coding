@@ -15,7 +15,7 @@ use tokio::{
 use crate::base_libs::{
     _operation::{BinKV, Operation, OperationType},
     _paxos_types::PaxosMessage,
-    network::_messages::{receive_message, send_message},
+    network::_messages::{receive_message, send_bytes, send_message},
 };
 
 use super::_node::Node;
@@ -27,7 +27,6 @@ impl Node {
             self.leader_address
         );
         send_message(
-            &self.socket,
             PaxosMessage::ClientRequest {
                 request_id: self.request_id,
                 payload: payload,
@@ -80,10 +79,9 @@ impl Node {
         );
         println!("{}", response);
 
-        self.socket
-            .send_to(response.as_bytes(), load_balancer_addr)
+        send_bytes(response.as_bytes(), load_balancer_addr)
             .await
-            .unwrap();
+            .unwrap()
     }
 
     pub async fn handle_recovery_request(&self, src_addr: &String, key: &str) {
@@ -91,7 +89,6 @@ impl Node {
             Some(value) => {
                 // Send the data to the requestor
                 send_message(
-                    &self.socket,
                     PaxosMessage::RecoveryReply {
                         index: self.cluster_index,
                         payload: value,
@@ -129,7 +126,6 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 send_message(
-                    &socket,
                     PaxosMessage::LeaderRequest {
                         request_id: request_id,
                     },
@@ -217,7 +213,6 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 send_message(
-                    &socket,
                     PaxosMessage::LeaderAccepted {
                         request_id: request_id,
                         operation: sent_operation,
@@ -298,7 +293,6 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 send_message(
-                    &socket,
                     PaxosMessage::LeaderAccepted {
                         request_id: request_id,
                         operation: operation,
@@ -381,7 +375,6 @@ impl Node {
 
             tasks.spawn(async move {
                 if let Err(_e) = send_message(
-                    &socket,
                     PaxosMessage::RecoveryRequest { key },
                     follower_addr.as_str(),
                 )

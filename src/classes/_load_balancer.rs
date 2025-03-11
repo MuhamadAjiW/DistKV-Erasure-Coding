@@ -89,7 +89,6 @@ impl LoadBalancer {
                 let payload = message.into_bytes();
                 if let Some(target) = self.get_next_target() {
                     send_message(
-                        &socket,
                         PaxosMessage::ClientRequest {
                             request_id,
                             payload,

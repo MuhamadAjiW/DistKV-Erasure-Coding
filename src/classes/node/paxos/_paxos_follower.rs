@@ -4,7 +4,7 @@ use crate::{
     base_libs::{
         _operation::Operation,
         _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest, PaxosMessage},
-        network::_messages::send_message,
+        network::_messages::{send_bytes, send_message},
     },
     classes::node::_node::Node,
 };
@@ -21,7 +21,7 @@ impl Node {
             PaxosMessage::FollowerRegisterRequest(FollowerRegistrationRequest {
                 follower_addr: follower_addr.to_string(),
             });
-        send_message(&self.socket, registration_message, leader_addr)
+        send_message(registration_message, leader_addr)
             .await
             .unwrap();
         println!("Follower registered with leader: {}", leader_addr);
@@ -30,11 +30,7 @@ impl Node {
         let lb_registration_message = format!("register:{}", follower_addr);
         let mut registered = false;
         while !registered {
-            match self
-                .socket
-                .send_to(lb_registration_message.as_bytes(), load_balancer_addr)
-                .await
-            {
+            match send_bytes(lb_registration_message.as_bytes(), load_balancer_addr).await {
                 Ok(_) => {
                     println!(
                         "Follower registered with load balancer: {}",
@@ -65,7 +61,7 @@ impl Node {
 
         println!("Follower received request message from leader");
         let ack = PaxosMessage::FollowerAck { request_id };
-        send_message(&self.socket, ack, &leader_addr).await.unwrap();
+        send_message(ack, &leader_addr).await.unwrap();
         println!("Follower acknowledged request ID: {}", request_id);
     }
     pub async fn follower_handle_leader_accepted(
@@ -92,7 +88,7 @@ impl Node {
             operation.kv.key, operation.kv.value
         );
         let ack = PaxosMessage::FollowerAck { request_id };
-        send_message(&self.socket, ack, &leader_addr).await.unwrap();
+        send_message(ack, &leader_addr).await.unwrap();
         println!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())
@@ -116,7 +112,7 @@ impl Node {
         let ack = PaxosMessage::FollowerAck {
             request_id: self.cluster_index as u64,
         };
-        send_message(&self.socket, ack, &leader_addr).await.unwrap();
+        send_message(ack, &leader_addr).await.unwrap();
         println!("Acknowledged follower with given index: {}", follower.index);
     }
 

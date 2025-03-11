@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use tokio::net::UdpSocket;
+use tokio::net::TcpListener;
 
 use crate::{
     base_libs::{
@@ -18,7 +18,7 @@ use super::paxos::_paxos::PaxosState;
 pub struct Node {
     // Base attributes
     pub address: Address,
-    pub socket: Arc<UdpSocket>,
+    pub socket: Arc<TcpListener>,
     pub running: bool,
 
     // Paxos related attributes
@@ -45,7 +45,7 @@ impl Node {
         parity_count: usize,
         ec_active: bool,
     ) -> Self {
-        let socket = Arc::new(UdpSocket::bind(address.to_string()).await.unwrap());
+        let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
         let running = false;
         let cluster_list = Arc::new(Mutex::new(Vec::new()));
         let cluster_index = std::usize::MAX;

@@ -39,7 +39,6 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 if let Err(_e) = send_message(
-                    &socket,
                     PaxosMessage::FollowerRegisterReply(FollowerRegistrationReply {
                         follower_list,
                         index,
