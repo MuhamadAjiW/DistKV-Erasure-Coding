@@ -18,13 +18,13 @@ impl Node {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                println!("Leader address is not set");
+                println!("[ERROR] Leader address is not set");
                 return;
             }
         };
         let leader_addr = &leader_addr as &str;
         if src_addr != leader_addr {
-            println!("Follower received request message from not a leader");
+            println!("[ERROR] Follower received request message from not a leader");
             return;
         }
 
@@ -46,14 +46,14 @@ impl Node {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                println!("Leader address is not set");
+                println!("[ERROR] Leader address is not set");
                 return Ok(());
             }
         };
         let leader_addr = &leader_addr as &str;
 
         if src_addr != leader_addr {
-            println!("Follower received request message from not a leader");
+            println!("[ERROR] Follower received request message from not a leader");
             return Ok(());
         }
 

@@ -157,8 +157,7 @@ run_all() {
         addr=$(jq -r ".nodes[$i].ip" "$config_path")
         port=$(jq -r ".nodes[$i].port" "$config_path")
 
-        # start_terminal "./scripts.sh run_node ${addr} ${port}"
-        ./scripts.sh run_node ${addr} ${port}
+        start_terminal "./scripts.sh run_node ${addr} ${port}"
         sleep 1
     done
 

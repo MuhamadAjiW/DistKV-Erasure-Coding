@@ -26,7 +26,7 @@ impl Node {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                println!("Leader address is not set");
+                println!("[ERROR] Leader address is not set");
                 return;
             }
         };
@@ -66,7 +66,7 @@ impl Node {
         }
 
         let response = format!(
-            "[RESPONSE] Request ID: {}\nMessage: {}\nReply: {}.",
+            "[RESPONSE] Request ID: {}; Message: {}; Reply: {}.",
             initial_request_id, message, result
         );
         println!("{}", response);
@@ -352,7 +352,7 @@ impl Node {
         let ec = match &self.ec {
             Some(ec) => ec,
             None => {
-                println!("Leader address is not set");
+                println!("[ERROR] Leader address is not set");
                 return None;
             }
         };

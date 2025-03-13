@@ -69,7 +69,8 @@ impl StorageController {
         let ec = match &node.ec {
             Some(ec) => ec,
             None => {
-                println!("EC service is not active");
+                // TODO: replication?
+                println!("[ERROR] EC service is not active");
                 return Ok(None);
             }
         };
@@ -88,7 +89,7 @@ impl StorageController {
                 let mut recovery: Vec<Option<Vec<u8>>> = match recovery {
                     Some(recovery) => recovery,
                     None => {
-                        println!("Failed to recover shards");
+                        println!("[ERROR] Failed to recover shards");
                         return Ok(None);
                     }
                 };
@@ -98,7 +99,7 @@ impl StorageController {
                 }
 
                 if let Err(e) = ec.reconstruct(&mut recovery) {
-                    println!("Failed to reconstruct shards: {:?}", e);
+                    println!("[ERROR] Failed to reconstruct shards: {:?}", e);
                     return Ok(None);
                 }
 
@@ -134,7 +135,7 @@ impl StorageController {
                 let ec = match &node.ec {
                     Some(ec) => ec,
                     None => {
-                        println!("EC service is missing");
+                        println!("[ERROR] EC service is missing");
                         return None;
                     }
                 };
