@@ -2,6 +2,7 @@
 
 SCREEN_SESSION="paxos_rust"
 
+# Utility commands
 kill_all_screen_session() {
     screen -ls | awk '/[0-9]+\./ {print $1}' | xargs -r -I{} screen -S {} -X quit
 }
@@ -12,14 +13,9 @@ create_screen_session() {
     fi
 }
 
-# Scripts translated from scripts.ps1
-connection_ip(){
-    ip addr show ens33 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1
-}
-
 start_terminal() {
     local command="$1"
-    local session_name="$2"
+    local window_name="$2"
     
     echo "Starting terminal with command: ${command}"
 
@@ -28,116 +24,83 @@ start_terminal() {
     screen -S "$SCREEN_SESSION" -X screen -t "$window_name" bash -c "$command"
 }
 
-follower() {
-    local addr="${1:-$(connection_ip)}"
-    local leader_addr="${2:-0.0.0.0:8080}"
-    local lb_addr="${3:-0.0.0.0:8000}"
-    local port="${4:-8081}"
-    local shard_count="${5:-4}"
-    local parity_count="${6:-2}"
+validate_config() {
+    local path="${1:-./etc/config.json}"
 
-    if [ -z "$addr" ]; then
-      addr="0.0.0.0"
+    echo "Checking configuration: $path"
+
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required but not installed."
+        exit 1
     fi
 
-  local command="cargo run -- follower ${addr}:${port} ${leader_addr} ${lb_addr} ${shard_count} ${parity_count} > ./log/follower_${addr}_${port}.log"
-
-  echo "Starting follower on ${addr}:${port}"
-
-  start_terminal "$command" "Follower ${port}"
-}
-
-followers() {
-    local addr="${1:-$(connection_ip)}"
-    local leader_addr="${2:-0.0.0.0:8080}"
-    local lb_addr="${3:-0.0.0.0:8000}"
-    local port="${4:-8081}"
-    local shard_count="${5:-4}"
-    local parity_count="${6:-2}"
-
-    if [ -z "$addr" ]; then
-        addr="0.0.0.0"
+    if [[ ! -f "$path" ]]; then
+        echo "Error: Config file '$path' not found."
+        exit 1
     fi
 
-    local size=$((shard_count + parity_count - 1))
-    echo "Starting $size followers"
+    local shard_count
+    local parity_count
+    local node_count
+    shard_count=$(jq '.shard_count' "$path")
+    parity_count=$(jq '.parity_count' "$path")
+    node_count=$(jq '.nodes | length' "$path")
 
-    for ((i = 0; i < size; i++)); do
-        local n_port=$((port + i))
-        sleep 1
-        follower "$addr" "$leader_addr" "$lb_addr" "$n_port" "$shard_count" "$parity_count"
-    done
-}
-
-leader() {
-    local addr="${1:-$(connection_ip)}"
-    local lb_addr="${2:-0.0.0.0:8000}"
-    local port="${3:-8080}"
-    local shard_count="${4:-4}"
-    local parity_count="${5:-2}"
-
-    if [ -z "$addr" ]; then
-        addr="0.0.0.0"
+    if ! [[ "$shard_count" =~ ^[0-9]+$ ]] || ! [[ "$parity_count" =~ ^[0-9]+$ ]]; then
+        echo "Error: shard_count and parity_count must be valid integers."
+        exit 1
     fi
 
-    local command="cargo run -- leader ${addr}:${port} ${lb_addr} ${shard_count} ${parity_count} > ./log/leader_${addr}_${port}.log"
-    
-    echo "Starting leader on ${addr}:${port}"
-
-    start_terminal "$command" "Leader"
-}
-
-load_balancer() {
-    local addr="${1:-$(connection_ip)}"
-    local port="${2:-8000}"
-
-    if [ -z "$addr" ]; then
-        addr="0.0.0.0"
+    local expected_count=$((shard_count + parity_count))
+    if [[ "$node_count" -ne "$expected_count" ]]; then
+        echo "Error: Number of nodes ($node_count) does not match shard_count + parity_count ($expected_count)."
+        exit 1
     fi
 
-    local command="cargo run -- load_balancer ${addr}:${port} > ./log/load_balancer_${addr}_${port}.log"
-    
-    echo "Starting load balancer on ${addr}:${port}"
+    local unique_nodes
+    unique_nodes=$(jq -r '.nodes[] | "\(.ip):\(.port)"' "$path" | sort | uniq | wc -l)
 
-    start_terminal "$command" "LoadBalancer"
-}
-
-run_all() {
-    local addr="${1:-$(connection_ip)}"
-    local lb_port="${2:-8000}"
-    local leader_port="${3:-8080}"
-    local follower_port="${4:-8081}"
-    local shard_count="${5:-4}"
-    local parity_count="${6:-2}"
-    local run_local="${7:-false}"
-
-    if [ "$run_local" == "true" ]; then
-        addr="127.0.0.1"
-    elif [ -z "$addr" ]; then
-        addr="0.0.0.0"
+    if [[ "$unique_nodes" -ne "$node_count" ]]; then
+        echo "Error: Duplicate node addresses found in the configuration."
+        exit 1
     fi
 
-    load_balancer "$addr" "$lb_port"
-    sleep 1
-    leader "$addr" "${addr}:${lb_port}" "$leader_port" "$shard_count" "$parity_count"
-    sleep 1
-    followers "$addr" "${addr}:${leader_port}" "${addr}:${lb_port}" "$follower_port" "$shard_count" "$parity_count"
-    sleep 1
-    
-    local instance_count=$((shard_count + parity_count))
-    start_terminal "./scripts.sh run_memcached $instance_count"
+    local unique_memcached
+    unique_memcached=$(jq -r '.nodes[] | "\(.memcached.ip):\(.memcached.port)"' "$path" | sort | uniq | wc -l)
 
-    echo "All services started."
+    if [[ "$unique_memcached" -ne "$node_count" ]]; then
+        echo "Error: Duplicate memcached addresses found in the configuration."
+        exit 1
+    fi
+
+    local unique_rocks_db
+    unique_rocks_db=$(jq -r '.nodes[] | .rocks_db.path' "$path" | sort | uniq | wc -l)
+
+    if [[ "$unique_rocks_db" -ne "$node_count" ]]; then
+        echo "Error: Duplicate rocks_db paths found in the configuration."
+        exit 1
+    fi
+
+    echo "Configuration is valid."
 }
 
-# Memcached
+# Actual commands
+run_node() {
+    local addr="${1:-127.0.0.1}"
+    local port="${2:-8081}"
+
+    echo "Starting node on ${addr}:${port}"
+
+    cargo run -- node ${addr}:${port} > ./log/node_${addr}_${port}.log
+}
+
 run_memcached() {
-    local instances="${1:-6}"
-    local base_port="${2:-18080}"
-    local memory="${3:-64}"
+    local config_path="${1:-./etc/config.json}"
+    local memory="${2:-64}"
     local PIDS=()
 
-    # Function to clean up Memcached processes on SIGINT (Ctrl+C)
+    validate_config "$config_path"
+
     cleanup_memcached() {
         echo -e "\nStopping Memcached instances..."
         for PID in "${PIDS[@]}"; do
@@ -149,13 +112,22 @@ run_memcached() {
     }
     trap cleanup_memcached SIGINT
 
-    for ((i=0; i<instances; i++)); do
-        port=$((base_port + i))
-        memcached -d -m $memory -p $port
+    local instance_count
+    instance_count=$(jq '.nodes | length' "$config_path")
+
+    for ((i=0; i<instance_count; i++)); do
+        local ip
+        local port
+        ip=$(jq -r ".nodes[$i].memcached.ip" "$config_path")
+        port=$(jq -r ".nodes[$i].memcached.port" "$config_path")
+
+        memcached -d -m "$memory" -l "$ip" -p "$port"
         sleep 1
-        PID=$(pgrep -f "memcached -d -m $memory -p $port")
-        PIDS+=($PID)
-        echo "Started Memcached on port $port with PID $PID"
+
+        PID=$(pgrep -f "memcached.*-l $ip -p $port")
+        PIDS+=("$PID")
+
+        echo "Started Memcached on $ip:$port with PID $PID"
     done
 
     while true; do
@@ -163,20 +135,41 @@ run_memcached() {
     done
 }
 
-if [ "$1" == "run_all" ]; then
-    run_all "${@:2}"
-elif [ "$1" == "leader" ]; then
-    leader "${@:2}"
-elif [ "$1" == "followers" ]; then
-    followers "${@:2}"
-elif [ "$1" == "follower" ]; then
-    follower "${@:2}"
-elif [ "$1" == "load_balancer" ]; then
-    load_balancer "${@:2}"
+run_all() {
+    local config_path="${1:-./etc/config.json}"
+
+    validate_config "$config_path"
+
+    # Starting memcached
+    start_terminal "./scripts.sh run_memcached ${config_path}"
+    sleep 1
+
+    # Starting nodes
+    local node_count
+    node_count=$(jq '.nodes | length' "$config_path")
+
+    for ((i=0; i<node_count; i++)); do
+        local addr
+        local port
+
+        addr=$(jq -r ".nodes[$i].ip" "$config_path")
+        port=$(jq -r ".nodes[$i].port" "$config_path")
+
+        start_terminal "./scripts.sh run_node ${addr} ${port}"
+        sleep 1
+    done
+
+    echo "All services started."
+}
+
+if [ "$1" == "run_node" ]; then
+    run_node "${@:2}"
 elif [ "$1" == "run_memcached" ]; then
     run_memcached "${@:2}"
+elif [ "$1" == "run_all" ]; then
+    run_all "${@:2}"
 elif [ "$1" == "stop_all" ]; then
     kill_all_screen_session
 else
-    echo "Usage: $0 {run_all|leader|followers|follower|load_balancer|stop_all|run_memcached} [args]"
+    echo "Usage: $0 {run_memcached|run_node|run_all|stop_all} [args]"
 fi

@@ -2,10 +2,7 @@ use std::io;
 
 use distkv::{
     base_libs::network::_address::Address,
-    classes::{
-        _load_balancer,
-        node::{_node::Node, paxos::_paxos::PaxosState},
-    },
+    classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 use tokio::net::UdpSocket;
 
@@ -82,13 +79,6 @@ async fn main() -> Result<(), io::Error> {
             .await;
 
             node.run().await?;
-        }
-        "load_balancer" => {
-            let mut lb = _load_balancer::LoadBalancer::new(); // Declare lb as mutable
-            let load_balancer_addr_input = std::env::args()
-                .nth(2)
-                .expect("No load balancer address provided");
-            lb.listen_and_route(&load_balancer_addr_input).await; // Call listen_and_route with mutable reference
         }
         "client" => {
             println!("Client starting...");
