@@ -88,10 +88,11 @@ validate_config() {
 run_node() {
     local addr="${1:-127.0.0.1}"
     local port="${2:-8081}"
+    local config_file="${3:-./etc/config.json}"
 
     echo "Starting node on ${addr}:${port}"
 
-    cargo run -- node ${addr}:${port} > ./log/node_${addr}_${port}.log
+    cargo run -- node ${addr}:${port} ${config_file} > ./log/node_${addr}_${port}.log
 }
 
 run_memcached() {

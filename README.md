@@ -2,7 +2,7 @@
 
 This project is a simple Paxos-based distributed system implemented in Rust using the `tokio` async runtime. It consists of a load balancer, a leader, and multiple follower nodes communicating over UDP. The goal of this system is to simulate basic consensus behavior using the Paxos protocol.
 
-## Features
+<!-- ## Features
 - **Client Request Handling**: The client sends a request to the load balancer, which forwards it to a leader or follower.
 - **Leader-Follower Communication**: The leader broadcasts requests to followers and waits for majority acknowledgment.
 - **Load Balancing**: The load balancer distributes client requests to different nodes (leader or followers) using round-robin logic.
@@ -10,7 +10,7 @@ This project is a simple Paxos-based distributed system implemented in Rust usin
 ## System Architecture
 - **Leader**: Coordinates the requests by broadcasting them to the followers and collects acknowledgments.
 - **Followers**: Receive broadcasted requests and send acknowledgments back to the leader.
-- **Load Balancer**: Forwards client requests to different nodes and handles routing responses back to the client.
+- **Load Balancer**: Forwards client requests to different nodes and handles routing responses back to the client. -->
 
 ## Prerequisites
 - **Rust**: Make sure you have Rust installed. You can install it via [rustup](https://rustup.rs/).
@@ -27,7 +27,7 @@ This project is a simple Paxos-based distributed system implemented in Rust usin
    cargo build
    ```
 
-## Running the System
+<!-- ## Running the System
 
 ### Step 1: Start the Load Balancer
 The load balancer listens for client requests and forwards them to the leader or followers.
@@ -75,4 +75,4 @@ You should see the request being processed by the leader and followers in the lo
 ## Future Improvements
 - **Fault Tolerance**: Implement retry mechanisms for follower failures.
 - **Scalability**: Improve load balancer to dynamically scale with the number of nodes.
-- **Multicast Support**: Enhance leader-to-follower communication using multicast.
+- **Multicast Support**: Enhance leader-to-follower communication using multicast. -->

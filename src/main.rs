@@ -4,87 +4,29 @@ use distkv::{
     base_libs::network::_address::Address,
     classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
-use tokio::net::UdpSocket;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
     let role = std::env::args().nth(1).expect("No role provided");
-    let ec_active = true;
 
     match role.as_str() {
-        "leader" => {
-            let addr_input = std::env::args().nth(2).expect("No leader address provided");
-            let load_balancer_addr_input = std::env::args()
+        "node" => {
+            let follower_addr_input = std::env::args().nth(2).expect("No address provided");
+            let configuration_input = std::env::args()
                 .nth(3)
-                .expect("No load balancer address provided");
-            let shard_count = std::env::args()
-                .nth(4)
-                .expect("No shard count provided")
-                .parse()
-                .unwrap();
-            let parity_count = std::env::args()
-                .nth(5)
-                .expect("No parity count provided")
-                .parse()
-                .unwrap();
-
-            let address = Address::from_string(&addr_input).unwrap();
-            let leader_address = Address::from_string(&addr_input).unwrap();
-            let load_balancer_address = Address::from_string(&load_balancer_addr_input).unwrap();
-
-            let mut node = Node::new(
-                address,
-                leader_address,
-                load_balancer_address,
-                PaxosState::Leader,
-                shard_count,
-                parity_count,
-                ec_active,
-            )
-            .await;
-
-            node.run().await?;
-        }
-        "follower" => {
-            let follower_addr_input = std::env::args()
-                .nth(2)
-                .expect("No follower address provided");
-            let leader_addr_input = std::env::args().nth(3).expect("No leader address provided");
-            let load_balancer_addr_input = std::env::args()
-                .nth(4)
-                .expect("No load balancer address provided");
-            let shard_count = std::env::args()
-                .nth(5)
-                .expect("No shard count provided")
-                .parse()
-                .unwrap();
-            let parity_count = std::env::args()
-                .nth(6)
-                .expect("No parity count provided")
-                .parse()
-                .unwrap();
+                .expect("No configuration file provided");
 
             let address = Address::from_string(&follower_addr_input).unwrap();
-            let leader_address = Address::from_string(&leader_addr_input).unwrap();
-            let load_balancer_address = Address::from_string(&load_balancer_addr_input).unwrap();
-            let mut node = Node::new(
-                address,
-                leader_address,
-                load_balancer_address,
-                PaxosState::Follower,
-                shard_count,
-                parity_count,
-                ec_active,
-            )
-            .await;
+            println!("[INIT] Starting node with address: {}", address);
 
-            node.run().await?;
+            let mut node = Node::from_config(address, &configuration_input).await;
+            println!("[INIT] Node started: {:?}", node);
+
+            // node.run().await?;
         }
         "client" => {
             println!("Client starting...");
-            let load_balancer_addr_input = std::env::args()
-                .nth(2)
-                .expect("No load balancer address provided");
+            let node_addr_input = std::env::args().nth(2).expect("No node address provided");
 
             let mut data = std::env::args()
                 .nth(3)
@@ -104,20 +46,20 @@ async fn main() -> Result<(), io::Error> {
                 data.append(&mut data_repeated);
             }
 
-            let socket = UdpSocket::bind("127.0.0.1:50000")
-                .await
-                .expect("Failed to bind socket");
-            println!("Sending message to {}...", load_balancer_addr_input);
-            socket.send_to(&data, load_balancer_addr_input).await?;
+            // let socket = UdpSocket::bind("127.0.0.1:50000")
+            //     .await
+            //     .expect("Failed to bind socket");
+            // println!("Sending message to {}...", node_addr_input);
+            // socket.send_to(&data, node_addr_input).await?;
 
-            println!("Waiting for response...");
-            let mut buf = [0; 65536];
-            let (size, client_addr) = socket.recv_from(&mut buf).await.unwrap();
-            let message = String::from_utf8_lossy(&buf[..size]).to_string();
-            println!("Client received reply from {}: {}", client_addr, message);
+            // println!("Waiting for response...");
+            // let mut buf = [0; 65536];
+            // let (size, client_addr) = socket.recv_from(&mut buf).await.unwrap();
+            // let message = String::from_utf8_lossy(&buf[..size]).to_string();
+            // println!("Client received reply from {}: {}", client_addr, message);
         }
         _ => {
-            panic!("Invalid role! Use 'leader', 'follower', 'client', or 'load_balancer'.");
+            panic!("Invalid command! Use 'node' or 'client'.");
         }
     }
 

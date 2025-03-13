@@ -1,6 +1,6 @@
 use bincode;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, TcpStream};
 
 use crate::base_libs::_paxos_types::PaxosMessage;
 

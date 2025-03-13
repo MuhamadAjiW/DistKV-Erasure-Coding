@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     io,
     sync::{Arc, Mutex},
@@ -10,7 +11,10 @@ use crate::{
         _paxos_types::PaxosMessage,
         network::{_address::Address, _messages::receive_message},
     },
-    classes::{ec::_ec_service::ECService, store::_storage_controller::StorageController},
+    classes::{
+        config::_config::Config, ec::_ec_service::ECService,
+        store::_storage_controller::StorageController,
+    },
 };
 
 use super::paxos::_paxos::PaxosState;
@@ -36,11 +40,23 @@ pub struct Node {
 }
 
 impl Node {
+    pub async fn from_config(address: Address, config_path: &str) {
+        let config = Config::get_node_config(address, config_path).await;
+
+        if let Some((index, node_config)) = config {
+            println!("[INIT] Index: {}", index);
+            println!("[INIT] Node Config: {:?}", node_config);
+        } else {
+            panic!("Error: Failed to get node config");
+        }
+
+        return;
+    }
+
     pub async fn new(
         address: Address,
         leader_address: Address,
         load_balancer_address: Address,
-        state: PaxosState,
         shard_count: usize,
         parity_count: usize,
         ec_active: bool,
@@ -48,9 +64,9 @@ impl Node {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
         let running = false;
         let cluster_list = Arc::new(Mutex::new(Vec::new()));
+        let state = PaxosState::Follower;
         let cluster_index = std::usize::MAX;
         let memcached_url = format!("memcache://{}:{}", address.ip, address.port + 10000);
-
         let ec = Arc::new(ECService::new(shard_count, parity_count));
         let store = StorageController::new(&address.to_string(), &memcached_url);
         let request_id = 0;
