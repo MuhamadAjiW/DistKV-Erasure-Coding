@@ -35,7 +35,7 @@ impl StorageController {
                 }
             }
             OperationType::SET | OperationType::DELETE => match node.state {
-                PaxosState::Follower => {
+                PaxosState::Follower | PaxosState::Candidate => {
                     println!(
                         "[FORWARD] Forwarding request to leader: {}",
                         request.to_string()

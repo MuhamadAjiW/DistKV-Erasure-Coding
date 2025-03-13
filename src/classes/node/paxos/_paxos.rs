@@ -8,12 +8,14 @@ use crate::{base_libs::_operation::Operation, classes::node::_node::Node};
 #[derive(PartialEq)]
 pub enum PaxosState {
     Follower,
+    Candidate,
     Leader,
 }
 impl fmt::Display for PaxosState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PaxosState::Follower => write!(f, "Follower"),
+            PaxosState::Candidate => write!(f, "Candidate"),
             PaxosState::Leader => write!(f, "Leader"),
         }
     }
@@ -25,6 +27,10 @@ impl Node {
         match self.state {
             PaxosState::Follower => {
                 self.follower_handle_leader_request(source, stream, request_id)
+                    .await
+            }
+            PaxosState::Candidate => {
+                self.candidate_handle_leader_request(source, stream, request_id)
                     .await
             }
             PaxosState::Leader => {
@@ -45,6 +51,10 @@ impl Node {
                 self.follower_handle_leader_accepted(src_addr, stream, request_id, operation)
                     .await?
             }
+            PaxosState::Candidate => {
+                self.candidate_handle_leader_accepted(src_addr, stream, request_id, operation)
+                    .await?
+            }
             PaxosState::Leader => {
                 self.leader_handle_leader_accepted(src_addr, stream, request_id, operation)
                     .await
@@ -58,6 +68,10 @@ impl Node {
         match self.state {
             PaxosState::Follower => {
                 self.follower_handle_follower_ack(src_addr, request_id)
+                    .await
+            }
+            PaxosState::Candidate => {
+                self.candidate_handle_follower_ack(src_addr, request_id)
                     .await
             }
             PaxosState::Leader => {
