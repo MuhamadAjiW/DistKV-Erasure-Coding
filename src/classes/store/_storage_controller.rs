@@ -28,7 +28,7 @@ impl StorageController {
                 response = self.memory.get(&request.kv.key);
                 if response.is_none() {
                     let recovered = self.get_from_cluster(&request.kv.key, node).await;
-                    response = Some(recovered.unwrap_or_default());
+                    response = recovered.unwrap_or_default();
                 }
             }
             OperationType::SET | OperationType::DELETE => {
@@ -61,8 +61,15 @@ impl StorageController {
         &self,
         key: &String,
         node: &Node,
-    ) -> Result<String, reed_solomon_erasure::Error> {
+    ) -> Result<Option<String>, reed_solomon_erasure::Error> {
         let mut result: String = String::new();
+        let ec = match &node.ec {
+            Some(ec) => ec,
+            None => {
+                println!("EC service is not active");
+                return Ok(None);
+            }
+        };
 
         match self.persistent.get(key) {
             Some(value) => {
@@ -71,19 +78,30 @@ impl StorageController {
                     followers_guard.iter().cloned().collect()
                 };
 
-                let mut recovery: Vec<Option<Vec<u8>>> = node
+                let mut recovery = node
                     .broadcast_get_shards(&follower_list, &Some(value), key)
                     .await;
+
+                let mut recovery: Vec<Option<Vec<u8>>> = match recovery {
+                    Some(recovery) => recovery,
+                    None => {
+                        println!("Failed to recover shards");
+                        return Ok(None);
+                    }
+                };
 
                 for ele in recovery.clone() {
                     println!("Shards: {:?}", ele.unwrap_or_default());
                 }
 
-                node.ec.reconstruct(&mut recovery)?;
+                if let Err(e) = ec.reconstruct(&mut recovery) {
+                    println!("Failed to reconstruct shards: {:?}", e);
+                    return Ok(None);
+                }
 
                 result = recovery
                     .iter()
-                    .take(node.ec.shard_count)
+                    .take(ec.shard_count)
                     .filter_map(|opt| opt.as_ref().map(|v| String::from_utf8(v.clone()).unwrap()))
                     .collect::<Vec<String>>()
                     .join("");
@@ -95,7 +113,7 @@ impl StorageController {
         }
         self.memory.set(key, &result);
 
-        Ok(result)
+        Ok(Some(result))
     }
 
     pub async fn update_value(&self, operation: &Operation, node: &Node) -> Option<String> {
@@ -110,7 +128,14 @@ impl StorageController {
         if acks >= majority {
             self.memory.process_request(&operation);
             if node.ec_active {
-                let encoded_shard = node.ec.encode(&operation.kv.value);
+                let ec = match &node.ec {
+                    Some(ec) => ec,
+                    None => {
+                        println!("EC service is missing");
+                        return None;
+                    }
+                };
+                let encoded_shard = ec.encode(&operation.kv.value);
                 self.persistent.process_request(&Operation {
                     op_type: operation.op_type.clone(),
                     kv: BinKV {

@@ -354,16 +354,21 @@ impl Node {
         follower_list: &Vec<String>,
         own_shard: &Option<Vec<u8>>,
         key: &str,
-    ) -> Vec<Option<Vec<u8>>> {
-        let recovery_shards = Arc::new(RwLock::new(vec![
-            None;
-            self.ec.shard_count + self.ec.parity_count
-        ]));
+    ) -> Option<Vec<Option<Vec<u8>>>> {
+        let ec = match &self.ec {
+            Some(ec) => ec,
+            None => {
+                println!("Leader address is not set");
+                return None;
+            }
+        };
+
+        let recovery_shards = Arc::new(RwLock::new(vec![None; ec.shard_count + ec.parity_count]));
         recovery_shards.write().await[self.cluster_index] = own_shard.clone();
 
         let size = follower_list.len();
         let response_count = Arc::new(AtomicUsize::new(1));
-        let required_count = self.ec.shard_count;
+        let required_count = ec.shard_count;
         let notify = Arc::new(Notify::new());
 
         let mut tasks = JoinSet::new();
@@ -429,6 +434,6 @@ impl Node {
         }
 
         let recovery_shards = recovery_shards.read().await;
-        recovery_shards.clone()
+        Some(recovery_shards.clone())
     }
 }

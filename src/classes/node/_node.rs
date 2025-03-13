@@ -34,7 +34,7 @@ pub struct Node {
 
     // Application attributes
     pub store: StorageController,
-    pub ec: Arc<ECService>,
+    pub ec: Option<Arc<ECService>>,
     pub ec_active: bool,
 }
 
@@ -93,7 +93,11 @@ impl Node {
         );
         let store = StorageController::new(&address.to_string(), &memcached_url);
 
-        let ec = Arc::new(ECService::new(shard_count, parity_count));
+        let ec = if ec_active {
+            Some(Arc::new(ECService::new(shard_count, parity_count)))
+        } else {
+            None
+        };
 
         let node = Node {
             address,
@@ -193,13 +197,24 @@ impl Node {
     pub fn print_info(&self) {
         println!("-------------------------------------");
         println!("[INFO] Node info:");
-        println!("Address: {}", self.address.to_string());
-        println!("State: {}", self.state.to_string());
-        println!("Erasure Coding: {}", self.ec_active.to_string());
-        println!("Shard count: {}", self.ec.shard_count);
-        println!("Parity count: {}", self.ec.parity_count);
-        println!("Cluster list: {:?}", self.cluster_list.lock().unwrap());
-        println!("Cluster index: {}", self.cluster_index);
+        println!("Address: {}", &self.address.to_string());
+        println!("State: {}", &self.state.to_string());
+        println!("Erasure Coding: {}", &self.ec_active.to_string());
+        if let Some(leader) = &self.leader_address {
+            println!("Leader: {}", &leader.to_string());
+        } else {
+            println!("Leader: None");
+        }
+        println!("Cluster list: {:?}", &self.cluster_list.lock().unwrap());
+        println!("Cluster index: {}", &self.cluster_index);
+
+        if let Some(ec) = &self.ec {
+            println!("\nErasure coding configuration:");
+            println!("Shard count: {}", &self.ec.as_ref().unwrap().shard_count);
+            println!("Parity count: {}", &self.ec.as_ref().unwrap().parity_count);
+        } else {
+            println!("Erasure coding is not active");
+        }
         println!("-------------------------------------");
     }
 }

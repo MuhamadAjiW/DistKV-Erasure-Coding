@@ -1,0 +1,75 @@
+{
+  "storage": {
+    "erasure_coding": true,
+    "shard_count": 4,
+    "parity_count": 2
+  },
+  "nodes": [
+    {
+      "ip": "0.0.0.0",
+      "port": 8080,
+      "memcached": {
+        "ip": "0.0.0.0",
+        "port": 18080
+      },
+      "rocks_db": {
+        "path": "./node-1"
+      }
+    },
+    {
+      "ip": "0.0.0.0",
+      "port": 8081,
+      "memcached": {
+        "ip": "0.0.0.0",
+        "port": 18081
+      },
+      "rocks_db": {
+        "path": "./node-2"
+      }
+    },
+    {
+      "ip": "0.0.0.0",
+      "port": 8082,
+      "memcached": {
+        "ip": "0.0.0.0",
+        "port": 18082
+      },
+      "rocks_db": {
+        "path": "./node-3"
+      }
+    },
+    {
+      "ip": "0.0.0.0",
+      "port": 8083,
+      "memcached": {
+        "ip": "0.0.0.0",
+        "port": 18083
+      },
+      "rocks_db": {
+        "path": "./node-4"
+      }
+    },
+    {
+      "ip": "0.0.0.0",
+      "port": 8084,
+      "memcached": {
+        "ip": "0.0.0.0",
+        "port": 18084
+      },
+      "rocks_db": {
+        "path": "./node-5"
+      }
+    },
+    {
+      "ip": "0.0.0.0",
+      "port": 8085,
+      "memcached": {
+        "ip": "0.0.0.0",
+        "port": 18085
+      },
+      "rocks_db": {
+        "path": "./node-6"
+      }
+    }
+  ]
+}
