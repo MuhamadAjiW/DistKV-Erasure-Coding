@@ -18,8 +18,7 @@ pub enum PaxosMessage {
 
     // Client requests
     ClientRequest {
-        request_id: u64,
-        payload: Vec<u8>,
+        operation: Operation,
     },
     RecoveryRequest {
         key: String,

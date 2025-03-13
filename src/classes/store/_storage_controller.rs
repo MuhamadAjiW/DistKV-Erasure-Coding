@@ -1,5 +1,8 @@
 use crate::{
-    base_libs::_operation::{BinKV, Operation, OperationType},
+    base_libs::{
+        _operation::{BinKV, Operation, OperationType},
+        _paxos_types::PaxosMessage,
+    },
     classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
@@ -31,23 +34,22 @@ impl StorageController {
                     response = recovered.unwrap_or_default();
                 }
             }
-            OperationType::SET | OperationType::DELETE => {
-                match node.state {
-                    PaxosState::Follower => {
-                        println!(
-                            "[FORWARD] Forwarding request to leader: {}",
-                            request.to_string()
-                        );
-                        // let serialized_request = bincode::serialize(request).unwrap();
-                        let string_payload = request.to_string();
-                        node.forward_to_leader(string_payload.into_bytes()).await;
-                        response = Some("FORWARDED".to_string());
-                    }
-                    PaxosState::Leader => {
-                        response = self.update_value(&request, node).await;
-                    }
+            OperationType::SET | OperationType::DELETE => match node.state {
+                PaxosState::Follower => {
+                    println!(
+                        "[FORWARD] Forwarding request to leader: {}",
+                        request.to_string()
+                    );
+                    node.forward_to_leader(PaxosMessage::ClientRequest {
+                        operation: request.clone(),
+                    })
+                    .await;
+                    response = Some("FORWARDED".to_string());
                 }
-            }
+                PaxosState::Leader => {
+                    response = self.update_value(&request, node).await;
+                }
+            },
             _ => {}
         }
 
@@ -78,7 +80,7 @@ impl StorageController {
                     followers_guard.iter().cloned().collect()
                 };
 
-                let mut recovery = node
+                let recovery = node
                     .broadcast_get_shards(&follower_list, &Some(value), key)
                     .await;
 

@@ -13,7 +13,7 @@
         "port": 18080
       },
       "rocks_db": {
-        "path": "./node-1"
+        "path": "./db/node-1"
       }
     },
     {
@@ -24,7 +24,7 @@
         "port": 18081
       },
       "rocks_db": {
-        "path": "./node-2"
+        "path": "./db/node-2"
       }
     },
     {
@@ -35,7 +35,7 @@
         "port": 18082
       },
       "rocks_db": {
-        "path": "./node-3"
+        "path": "./db/node-3"
       }
     },
     {
@@ -46,7 +46,7 @@
         "port": 18083
       },
       "rocks_db": {
-        "path": "./node-4"
+        "path": "./db/node-4"
       }
     },
     {
@@ -57,7 +57,7 @@
         "port": 18084
       },
       "rocks_db": {
-        "path": "./node-5"
+        "path": "./db/node-5"
       }
     },
     {
@@ -68,7 +68,7 @@
         "port": 18085
       },
       "rocks_db": {
-        "path": "./node-6"
+        "path": "./db/node-6"
       }
     }
   ]

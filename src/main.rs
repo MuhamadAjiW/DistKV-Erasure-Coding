@@ -1,8 +1,12 @@
 use std::io;
 
 use distkv::{
-    base_libs::network::_address::Address,
-    classes::node::{_node::Node, paxos::_paxos::PaxosState},
+    base_libs::{
+        _operation::Operation,
+        _paxos_types::PaxosMessage,
+        network::{_address::Address, _messages::send_message},
+    },
+    classes::node::_node::Node,
 };
 
 #[tokio::main]
@@ -44,6 +48,13 @@ async fn main() -> Result<(), io::Error> {
                 let mut data_repeated = data_input.repeat(data_count).as_bytes().to_vec();
 
                 data.append(&mut data_repeated);
+            }
+
+            let operation = Operation::parse(&data).unwrap();
+            if let Err(e) =
+                send_message(PaxosMessage::ClientRequest { operation }, &node_addr_input).await
+            {
+                eprintln!("Failed to send message: {}", e);
             }
 
             // let socket = UdpSocket::bind("127.0.0.1:50000")

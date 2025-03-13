@@ -13,7 +13,7 @@
         "port": 18080
       },
       "rocks_db": {
-        "path": "./node-1"
+        "path": "./db/node-1"
       }
     }
   ]

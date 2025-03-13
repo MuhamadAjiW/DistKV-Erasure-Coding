@@ -21,7 +21,7 @@ use crate::base_libs::{
 use super::_node::Node;
 
 impl Node {
-    pub async fn forward_to_leader(&self, payload: Vec<u8>) {
+    pub async fn forward_to_leader(&self, message: PaxosMessage) {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
@@ -32,29 +32,10 @@ impl Node {
         let leader_addr = &leader_addr as &str;
 
         println!("[FORWARD] Forwarding request to leader at {}", leader_addr);
-        send_message(
-            PaxosMessage::ClientRequest {
-                request_id: self.request_id,
-                payload: payload,
-            },
-            leader_addr,
-        )
-        .await
-        .unwrap();
+        send_message(message, leader_addr).await.unwrap();
     }
 
-    pub async fn handle_client_request(
-        &self,
-        src_addr: &String,
-        request_id: u64,
-        payload: &Vec<u8>,
-    ) -> () {
-        let req = Operation::parse(payload);
-        if matches!(req, None) {
-            println!("Request was invalid, dropping request");
-            return ();
-        }
-        let operation = req.unwrap();
+    pub async fn handle_client_request(&self, src_addr: &String, operation: Operation) -> () {
         let initial_request_id = self.request_id;
         let message = format!("Handled by {}", self.address.to_string());
         let result: String;

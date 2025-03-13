@@ -62,6 +62,7 @@ impl Node {
                 config.storage.shard_count,
                 config.storage.parity_count,
                 config.storage.erasure_coding,
+                config.nodes[index].rocks_db.path.as_str(),
             )
             .await;
         }
@@ -77,6 +78,7 @@ impl Node {
         shard_count: usize,
         parity_count: usize,
         ec_active: bool,
+        db_path: &str,
     ) -> Self {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
         let running = false;
@@ -91,7 +93,7 @@ impl Node {
             "memcache://{}:{}",
             memcached_address.ip, memcached_address.port
         );
-        let store = StorageController::new(&address.to_string(), &memcached_url);
+        let store = StorageController::new(db_path, &memcached_url);
 
         let ec = if ec_active {
             Some(Arc::new(ECService::new(shard_count, parity_count)))
@@ -161,16 +163,12 @@ impl Node {
                 }
 
                 // Client messages
-                PaxosMessage::ClientRequest {
-                    request_id,
-                    payload,
-                } => {
+                PaxosMessage::ClientRequest { operation } => {
                     println!(
                         "[REQUEST] Received ClientRequest from {}",
                         src_addr.to_string()
                     );
-                    self.handle_client_request(&src_addr, request_id, &payload)
-                        .await;
+                    self.handle_client_request(&src_addr, operation).await;
                 }
 
                 PaxosMessage::RecoveryRequest { key } => {
@@ -208,7 +206,7 @@ impl Node {
         println!("Cluster list: {:?}", &self.cluster_list.lock().unwrap());
         println!("Cluster index: {}", &self.cluster_index);
 
-        if let Some(ec) = &self.ec {
+        if let Some(_ec) = &self.ec {
             println!("\nErasure coding configuration:");
             println!("Shard count: {}", &self.ec.as_ref().unwrap().shard_count);
             println!("Parity count: {}", &self.ec.as_ref().unwrap().parity_count);
