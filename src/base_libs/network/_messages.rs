@@ -4,31 +4,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::base_libs::_paxos_types::PaxosMessage;
 
-pub async fn send_bytes(message: &[u8], addr: &str) -> io::Result<()> {
-    println!("[SOCKET] Sending message to {}", addr);
-    let mut stream = TcpStream::connect(addr).await?;
-    let serialized = bincode::serialize(&message).unwrap();
-    stream
-        .write_all(&(serialized.len() as u32).to_be_bytes())
-        .await?;
-    stream.write(&serialized).await?;
-    println!("[SOCKET] Sent {} bytes to {}", serialized.len(), addr);
-    Ok(())
-}
-
-pub async fn send_message(message: PaxosMessage, addr: &str) -> io::Result<()> {
-    println!("[SOCKET] Sending message to {}", addr);
-    let mut stream = TcpStream::connect(addr).await?;
-    let serialized = bincode::serialize(&message).unwrap();
-    stream
-        .write_all(&(serialized.len() as u32).to_be_bytes())
-        .await?;
-    stream.write(&serialized).await?;
-    println!("[SOCKET] Sent {} bytes to {}", serialized.len(), addr);
-    Ok(())
-}
-
-pub async fn receive_message(socket: &TcpListener) -> io::Result<(PaxosMessage, String)> {
+pub async fn listen(socket: &TcpListener) -> io::Result<(TcpStream, PaxosMessage)> {
     let (mut stream, src) = socket.accept().await?;
     println!(
         "[SOCKET] Received connection from {}",
@@ -48,19 +24,80 @@ pub async fn receive_message(socket: &TcpListener) -> io::Result<(PaxosMessage, 
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
         }
     };
-    Ok((message, src.to_string()))
+
+    Ok((stream, message))
 }
 
-pub async fn receive_bytes(socket: &TcpListener) -> io::Result<(Vec<u8>, String)> {
-    let (mut stream, src) = socket.accept().await?;
-    println!("[SOCKET] Connection accepted from {}", src);
+pub async fn send_message(message: PaxosMessage, addr: &str) -> io::Result<TcpStream> {
+    println!("[SOCKET] Sending message to {}", addr);
+    let mut stream = TcpStream::connect(addr).await?;
+    let serialized = bincode::serialize(&message).unwrap();
+    stream
+        .write_all(&(serialized.len() as u32).to_be_bytes())
+        .await?;
+    stream.write(&serialized).await?;
+    println!("[SOCKET] Sent {} bytes to {}", serialized.len(), addr);
 
+    Ok(stream)
+}
+
+pub async fn reply_message(message: PaxosMessage, mut stream: TcpStream) -> io::Result<TcpStream> {
+    let serialized = bincode::serialize(&message).unwrap();
+    stream
+        .write_all(&(serialized.len() as u32).to_be_bytes())
+        .await?;
+    stream.write(&serialized).await?;
+    println!(
+        "[SOCKET] Sent {} bytes to {:?}",
+        serialized.len(),
+        stream.peer_addr()
+    );
+
+    Ok(stream)
+}
+
+pub async fn reply_string(string: &str, mut stream: TcpStream) -> io::Result<TcpStream> {
+    let len = string.len() as u32;
+    stream.write_all(&len.to_be_bytes()).await?;
+    stream.write_all(string.as_bytes()).await?;
+    println!(
+        "[SOCKET] Sent {} bytes to {:?}",
+        string.len(),
+        stream.peer_addr()
+    );
+    Ok(stream)
+}
+
+pub async fn receive_message(mut stream: TcpStream) -> io::Result<(TcpStream, PaxosMessage)> {
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
-    let msg_len = u32::from_be_bytes(len_buf) as usize;
+    let len = u32::from_be_bytes(len_buf) as usize;
 
-    let mut buffer = vec![0; msg_len];
+    let mut buffer = vec![0; len];
     stream.read_exact(&mut buffer).await?;
+    println!("[SOCKET] Received {} bytes", len);
 
-    Ok((buffer, src.to_string()))
+    let message: PaxosMessage = match bincode::deserialize(&buffer) {
+        Ok(msg) => msg,
+        Err(e) => {
+            eprintln!("Failed to deserialize PaxosMessage: {:?}", e);
+            return Err(io::Error::new(io::ErrorKind::InvalidData, e));
+        }
+    };
+
+    Ok((stream, message))
+}
+
+pub async fn receive_string(mut stream: TcpStream) -> io::Result<(TcpStream, String)> {
+    let mut len_buf = [0u8; 4];
+    stream.read_exact(&mut len_buf).await?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+
+    let mut buffer = vec![0; len];
+    stream.read_exact(&mut buffer).await?;
+    println!("[SOCKET] Received {} bytes", len);
+
+    let string = String::from_utf8(buffer).expect("Invalid UTF-8 received");
+
+    Ok((stream, string))
 }

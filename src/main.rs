@@ -4,7 +4,10 @@ use distkv::{
     base_libs::{
         _operation::Operation,
         _paxos_types::PaxosMessage,
-        network::{_address::Address, _messages::send_message},
+        network::{
+            _address::Address,
+            _messages::{receive_string, send_message},
+        },
     },
     classes::node::_node::Node,
 };
@@ -51,10 +54,22 @@ async fn main() -> Result<(), io::Error> {
             }
 
             let operation = Operation::parse(&data).unwrap();
-            if let Err(e) =
-                send_message(PaxosMessage::ClientRequest { operation }, &node_addr_input).await
+            match send_message(
+                PaxosMessage::ClientRequest {
+                    operation,
+                    source: "CLIENT".to_string(),
+                },
+                &node_addr_input,
+            )
+            .await
             {
-                eprintln!("Failed to send message: {}", e);
+                Ok(stream) => {
+                    let response = receive_string(stream).await.unwrap().1;
+                    println!("Reply: {}", response);
+                }
+                Err(e) => {
+                    eprintln!("Failed to send message: {}", e);
+                }
             }
 
             // let socket = UdpSocket::bind("127.0.0.1:50000")

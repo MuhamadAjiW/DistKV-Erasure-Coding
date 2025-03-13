@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 use crate::{
     base_libs::{
         _paxos_types::PaxosMessage,
-        network::{_address::Address, _messages::receive_message},
+        network::{_address::Address, _messages::listen},
     },
     classes::{
         config::_config::Config, ec::_ec_service::ECService,
@@ -124,7 +124,7 @@ impl Node {
 
         self.print_info();
         while self.running {
-            let (message, src_addr) = match receive_message(&self.socket).await {
+            let (stream, message) = match listen(&self.socket).await {
                 Ok(msg) => msg,
                 Err(_) => {
                     println!("[ERROR] Received bad message on socket, continuing...");
@@ -134,55 +134,42 @@ impl Node {
 
             match message {
                 // Paxos messages
-                PaxosMessage::LeaderRequest { request_id } => {
-                    println!(
-                        "[REQUEST] Received LeaderRequest from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_leader_request(&src_addr, request_id).await
+                PaxosMessage::LeaderRequest { request_id, source } => {
+                    println!("[REQUEST] Received LeaderRequest from {}", source);
+                    self.handle_leader_request(&source, stream, request_id)
+                        .await
                 }
 
                 PaxosMessage::LeaderAccepted {
                     request_id,
                     operation,
+                    source,
                 } => {
-                    println!(
-                        "[REQUEST] Received LeaderAccepted from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_leader_accepted(&src_addr, request_id, &operation)
+                    println!("[REQUEST] Received LeaderAccepted from {}", source);
+                    self.handle_leader_accepted(&source, stream, request_id, &operation)
                         .await?;
                 }
 
-                PaxosMessage::FollowerAck { request_id } => {
-                    println!(
-                        "[REQUEST] Received FollowerAck from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_follower_ack(&src_addr, request_id).await
+                PaxosMessage::FollowerAck { request_id, source } => {
+                    println!("[REQUEST] Received FollowerAck from {}", source);
+                    self.handle_follower_ack(&source, stream, request_id).await
                 }
 
                 // Client messages
-                PaxosMessage::ClientRequest { operation } => {
-                    println!(
-                        "[REQUEST] Received ClientRequest from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_client_request(&src_addr, operation).await;
+                PaxosMessage::ClientRequest { operation, source } => {
+                    println!("[REQUEST] Received ClientRequest from {}", source);
+                    self.handle_client_request(&source, stream, operation).await;
                 }
 
-                PaxosMessage::RecoveryRequest { key } => {
-                    println!(
-                        "[REQUEST] Received RecoveryRequest from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_recovery_request(&src_addr, &key).await
+                PaxosMessage::RecoveryRequest { key, source } => {
+                    println!("[REQUEST] Received RecoveryRequest from {}", source);
+                    self.handle_recovery_request(&source, stream, &key).await
                 }
 
                 _ => {
                     println!(
-                        "[REQUEST] Received invalid message from {}",
-                        src_addr.to_string()
+                        "[REQUEST] Received invalid message from {:?}",
+                        stream.peer_addr()
                     );
                 }
             }

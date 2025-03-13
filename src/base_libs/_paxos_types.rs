@@ -7,24 +7,30 @@ pub enum PaxosMessage {
     // Paxos
     LeaderRequest {
         request_id: u64,
+        source: String,
     },
     LeaderAccepted {
         request_id: u64,
         operation: Operation,
+        source: String,
     },
     FollowerAck {
         request_id: u64,
+        source: String,
     },
 
     // Client requests
     ClientRequest {
         operation: Operation,
+        source: String,
     },
     RecoveryRequest {
         key: String,
+        source: String,
     },
     RecoveryReply {
         index: usize,
         payload: Vec<u8>,
+        source: String,
     },
 }

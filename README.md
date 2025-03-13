@@ -56,15 +56,7 @@ cargo run -- follower 127.0.0.1:8082 127.0.0.1:8080 127.0.0.1:8000 4 2
 cargo run -- follower 127.0.0.1:8083 127.0.0.1:8080 127.0.0.1:8000 4 2
 ```
 
-### Step 4: Send Requests via Netcat or Client
-Use `nc` (Netcat) to simulate a client sending requests to the load balancer:
-
-```bash
-echo "test message" | nc -u 127.0.0.1 8000
-```
-
-Alternatively, use the client program to send huge chunks of code at once
-
+### Step 4: Send Requests via Client
 ```bash
 cargo run -- client 127.0.0.1:8000 "SET A " "f" 50
 cargo run -- client 127.0.0.1:8000 "GET A"

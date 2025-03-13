@@ -7,6 +7,7 @@ use std::{
 };
 
 use tokio::{
+    net::TcpStream,
     sync::{Notify, RwLock},
     task::JoinSet,
     time::timeout,
@@ -15,7 +16,7 @@ use tokio::{
 use crate::base_libs::{
     _operation::{BinKV, Operation, OperationType},
     _paxos_types::PaxosMessage,
-    network::_messages::{receive_message, send_bytes, send_message},
+    network::_messages::{receive_message, reply_message, reply_string, send_message},
 };
 
 use super::_node::Node;
@@ -35,7 +36,12 @@ impl Node {
         send_message(message, leader_addr).await.unwrap();
     }
 
-    pub async fn handle_client_request(&self, src_addr: &String, operation: Operation) -> () {
+    pub async fn handle_client_request(
+        &self,
+        _src_addr: &String,
+        stream: TcpStream,
+        operation: Operation,
+    ) {
         let initial_request_id = self.request_id;
         let message = format!("Handled by {}", self.address.to_string());
         let result: String;
@@ -60,24 +66,25 @@ impl Node {
         }
 
         let response = format!(
-            "Request ID: {}\nMessage: {}\nReply: {}.",
+            "[RESPONSE] Request ID: {}\nMessage: {}\nReply: {}.",
             initial_request_id, message, result
         );
         println!("{}", response);
 
-        send_bytes(response.as_bytes(), &src_addr).await.unwrap()
+        reply_string(result.as_str(), stream).await.unwrap();
     }
 
-    pub async fn handle_recovery_request(&self, src_addr: &String, key: &str) {
+    pub async fn handle_recovery_request(&self, src_addr: &String, stream: TcpStream, key: &str) {
         match self.store.persistent.get(key) {
             Some(value) => {
                 // Send the data to the requestor
-                send_message(
+                reply_message(
                     PaxosMessage::RecoveryReply {
                         index: self.cluster_index,
                         payload: value,
+                        source: self.address.to_string(),
                     },
-                    &src_addr,
+                    stream,
                 )
                 .await
                 .unwrap();
@@ -97,21 +104,23 @@ impl Node {
 
         let mut acks = 1;
         let mut tasks = JoinSet::new();
+        let source = Arc::new(self.address.clone());
 
         for follower_addr in follower_list.iter() {
             if follower_addr == self.address.to_string().as_str() {
                 continue;
             }
 
-            let socket = Arc::clone(&self.socket);
+            let source = Arc::clone(&source);
             let follower_addr = follower_addr.clone();
             let request_id = self.request_id.clone();
 
             tasks.spawn(async move {
                 // Send the request to the follower
-                send_message(
+                let stream = send_message(
                     PaxosMessage::LeaderRequest {
                         request_id: request_id,
+                        source: source.to_string(),
                     },
                     &follower_addr,
                 )
@@ -123,8 +132,8 @@ impl Node {
                 // );
 
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
-                match timeout(Duration::from_secs(2), receive_message(&socket)).await {
-                    Ok(Ok((ack, _))) => {
+                match timeout(Duration::from_secs(2), receive_message(stream)).await {
+                    Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::FollowerAck { .. } = ack {
                             // println!(
                             //     "Leader received acknowledgment from follower at {}",
@@ -176,14 +185,15 @@ impl Node {
 
         let mut acks = 1;
         let mut tasks = JoinSet::new();
+        let source = Arc::new(self.address.clone());
 
         for (index, follower_addr) in follower_list.iter().enumerate() {
             if follower_addr == self.address.to_string().as_str() {
                 continue;
             }
 
-            let socket = Arc::clone(&self.socket);
             let follower_addr = follower_addr.clone();
+            let source = Arc::clone(&source);
             let request_id = self.request_id.clone();
 
             let sent_operation = Operation {
@@ -196,10 +206,11 @@ impl Node {
 
             tasks.spawn(async move {
                 // Send the request to the follower
-                send_message(
+                let stream = send_message(
                     PaxosMessage::LeaderAccepted {
                         request_id: request_id,
                         operation: sent_operation,
+                        source: source.to_string(),
                     },
                     follower_addr.as_str(),
                 )
@@ -211,8 +222,8 @@ impl Node {
                 // );
 
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
-                match timeout(Duration::from_secs(2), receive_message(&socket)).await {
-                    Ok(Ok((ack, _))) => {
+                match timeout(Duration::from_secs(2), receive_message(stream)).await {
+                    Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::FollowerAck { .. } = ack {
                             // println!(
                             //     "Leader received acknowledgment from follower at {}",
@@ -263,23 +274,25 @@ impl Node {
 
         let mut acks = 1;
         let mut tasks = JoinSet::new();
+        let source = Arc::new(self.address.clone());
 
         for follower_addr in follower_list {
             if follower_addr == self.address.to_string().as_str() {
                 continue;
             }
 
-            let socket = Arc::clone(&self.socket);
             let follower_addr = follower_addr.clone();
             let request_id = self.request_id.clone();
+            let source = Arc::clone(&source);
             let operation = operation.clone();
 
             tasks.spawn(async move {
                 // Send the request to the follower
-                send_message(
+                let stream = send_message(
                     PaxosMessage::LeaderAccepted {
                         request_id: request_id,
                         operation: operation,
+                        source: source.to_string(),
                     },
                     follower_addr.as_str(),
                 )
@@ -291,8 +304,8 @@ impl Node {
                 // );
 
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
-                match timeout(Duration::from_secs(2), receive_message(&socket)).await {
-                    Ok(Ok((ack, _))) => {
+                match timeout(Duration::from_secs(2), receive_message(stream)).await {
+                    Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::FollowerAck { .. } = ack {
                             // println!(
                             //     "Leader received acknowledgment from follower at {}",
@@ -351,35 +364,47 @@ impl Node {
         let response_count = Arc::new(AtomicUsize::new(1));
         let required_count = ec.shard_count;
         let notify = Arc::new(Notify::new());
+        let source = Arc::new(self.address.clone());
 
         let mut tasks = JoinSet::new();
 
         for follower_addr in follower_list.iter() {
-            let socket = Arc::clone(&self.socket);
             let key = key.to_string();
             let follower_addr = follower_addr.clone();
             let notify = Arc::clone(&notify);
             let recovery_shards = Arc::clone(&recovery_shards);
             let response_count = Arc::clone(&response_count);
+            let source = Arc::clone(&source);
 
             tasks.spawn(async move {
-                if let Err(_e) = send_message(
-                    PaxosMessage::RecoveryRequest { key },
+                let stream = match send_message(
+                    PaxosMessage::RecoveryRequest {
+                        key,
+                        source: source.to_string(),
+                    },
                     follower_addr.as_str(),
                 )
                 .await
                 {
-                    println!(
-                        "Failed to broadcast request to follower at {}",
-                        follower_addr
-                    );
-                    return;
-                }
+                    Ok(stream) => stream,
+                    Err(_e) => {
+                        println!(
+                            "Failed to broadcast request to follower at {}",
+                            follower_addr
+                        );
+                        return;
+                    }
+                };
                 // println!("Broadcasted request to follower at {}", follower_addr);
 
-                match timeout(Duration::from_secs(2), receive_message(&socket)).await {
-                    Ok(Ok((ack, _))) => {
-                        if let PaxosMessage::RecoveryReply { index, payload } = ack {
+                match timeout(Duration::from_secs(2), receive_message(stream)).await {
+                    Ok(Ok((_stream, ack))) => {
+                        if let PaxosMessage::RecoveryReply {
+                            index,
+                            payload,
+                            source: _,
+                        } = ack
+                        {
                             // println!("Received acknowledgment from {} ({})", follower_addr, index);
 
                             if index < size {

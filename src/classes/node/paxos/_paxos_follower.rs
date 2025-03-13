@@ -1,15 +1,20 @@
-use tokio::io;
+use tokio::{io, net::TcpStream};
 
 use crate::{
     base_libs::{
-        _operation::Operation, _paxos_types::PaxosMessage, network::_messages::send_message,
+        _operation::Operation, _paxos_types::PaxosMessage, network::_messages::reply_message,
     },
     classes::node::_node::Node,
 };
 
 impl Node {
     // ---Handlers---
-    pub async fn follower_handle_leader_request(&self, src_addr: &String, request_id: u64) {
+    pub async fn follower_handle_leader_request(
+        &self,
+        src_addr: &String,
+        stream: TcpStream,
+        request_id: u64,
+    ) {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
@@ -24,13 +29,17 @@ impl Node {
         }
 
         println!("Follower received request message from leader");
-        let ack = PaxosMessage::FollowerAck { request_id };
-        send_message(ack, &leader_addr).await.unwrap();
+        let ack = PaxosMessage::FollowerAck {
+            request_id,
+            source: self.address.to_string(),
+        };
+        reply_message(ack, stream).await.unwrap();
         println!("Follower acknowledged request ID: {}", request_id);
     }
     pub async fn follower_handle_leader_accepted(
         &mut self,
         src_addr: &String,
+        stream: TcpStream,
         request_id: u64,
         operation: &Operation,
     ) -> Result<(), io::Error> {
@@ -59,8 +68,11 @@ impl Node {
             "Follower received accept message from leader:\nKey: {}, Shard: {:?}",
             operation.kv.key, operation.kv.value
         );
-        let ack = PaxosMessage::FollowerAck { request_id };
-        send_message(ack, &leader_addr).await.unwrap();
+        let ack = PaxosMessage::FollowerAck {
+            request_id,
+            source: self.address.to_string(),
+        };
+        reply_message(ack, stream).await.unwrap();
         println!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())

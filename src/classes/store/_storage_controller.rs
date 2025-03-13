@@ -42,6 +42,7 @@ impl StorageController {
                     );
                     node.forward_to_leader(PaxosMessage::ClientRequest {
                         operation: request.clone(),
+                        source: node.address.to_string(),
                     })
                     .await;
                     response = Some("FORWARDED".to_string());
