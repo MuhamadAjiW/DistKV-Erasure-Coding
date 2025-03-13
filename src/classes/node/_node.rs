@@ -26,8 +26,7 @@ pub struct Node {
     pub running: bool,
 
     // Paxos related attributes
-    pub load_balancer_address: Address,
-    pub leader_address: Address,
+    pub leader_address: Option<Address>,
     pub cluster_list: Arc<Mutex<Vec<String>>>,
     pub cluster_index: usize,
     pub state: PaxosState,
@@ -40,42 +39,66 @@ pub struct Node {
 }
 
 impl Node {
-    pub async fn from_config(address: Address, config_path: &str) {
-        let config = Config::get_node_config(address, config_path).await;
+    pub async fn from_config(address: Address, config_path: &str) -> Self {
+        let config = Config::get_config(config_path).await;
+        let index = Config::get_node_index(&config, &address);
+        let node_list: Vec<String> = Config::get_node_addresses(&config)
+            .into_iter()
+            .map(|addr| addr.to_string())
+            .collect();
 
-        if let Some((index, node_config)) = config {
+        if let Some(index) = index {
+            println!("[INIT] Storage Config: {:?}", config.storage);
+            println!("[INIT] Node Config: {:?}", config.nodes[index]);
             println!("[INIT] Index: {}", index);
-            println!("[INIT] Node Config: {:?}", node_config);
-        } else {
-            panic!("Error: Failed to get node config");
+            return Node::new(
+                address,
+                Address::new(
+                    &config.nodes[index].memcached.ip,
+                    config.nodes[index].memcached.port,
+                ),
+                node_list,
+                index,
+                config.storage.shard_count,
+                config.storage.parity_count,
+                config.storage.erasure_coding,
+            )
+            .await;
         }
 
-        return;
+        panic!("Error: Failed to get node config");
     }
 
     pub async fn new(
         address: Address,
-        leader_address: Address,
-        load_balancer_address: Address,
+        memcached_address: Address,
+        cluster_list: Vec<String>,
+        cluster_index: usize,
         shard_count: usize,
         parity_count: usize,
         ec_active: bool,
     ) -> Self {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
         let running = false;
-        let cluster_list = Arc::new(Mutex::new(Vec::new()));
+
+        let leader_address = None;
+        let cluster_list = Arc::new(Mutex::new(cluster_list));
+        let cluster_index = cluster_index;
         let state = PaxosState::Follower;
-        let cluster_index = std::usize::MAX;
-        let memcached_url = format!("memcache://{}:{}", address.ip, address.port + 10000);
-        let ec = Arc::new(ECService::new(shard_count, parity_count));
-        let store = StorageController::new(&address.to_string(), &memcached_url);
         let request_id = 0;
+
+        let memcached_url = format!(
+            "memcache://{}:{}",
+            memcached_address.ip, memcached_address.port
+        );
+        let store = StorageController::new(&address.to_string(), &memcached_url);
+
+        let ec = Arc::new(ECService::new(shard_count, parity_count));
 
         let node = Node {
             address,
             socket,
             running,
-            load_balancer_address,
             leader_address,
             cluster_list,
             cluster_index,
@@ -91,24 +114,7 @@ impl Node {
 
     // Main Event Loop
     pub async fn run(&mut self) -> Result<(), io::Error> {
-        println!("Starting node...");
         self.running = true;
-
-        match self.state {
-            PaxosState::Follower => {
-                println!("[SETUP] Setting up as follower...");
-                if !self.follower_send_register().await {
-                    return Ok(());
-                }
-            }
-            PaxosState::Leader => {
-                println!("[SETUP] Setting up as leader...");
-                let mut followers_guard = self.cluster_list.lock().unwrap();
-                followers_guard.push(self.address.to_string());
-
-                self.cluster_index = 0;
-            }
-        }
 
         self.print_info();
         while self.running {
@@ -142,24 +148,6 @@ impl Node {
                         .await?;
                 }
 
-                PaxosMessage::FollowerRegisterRequest(follower) => {
-                    println!(
-                        "[REQUEST] Received FollowerRegisterRequest from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_follower_register_request(&src_addr, &follower)
-                        .await
-                }
-
-                PaxosMessage::FollowerRegisterReply(follower) => {
-                    println!(
-                        "[REQUEST] Received FollowerRegisterReply from {}",
-                        src_addr.to_string()
-                    );
-                    self.handle_follower_register_reply(&src_addr, &follower)
-                        .await
-                }
-
                 PaxosMessage::FollowerAck { request_id } => {
                     println!(
                         "[REQUEST] Received FollowerAck from {}",
@@ -189,13 +177,9 @@ impl Node {
                     self.handle_recovery_request(&src_addr, &key).await
                 }
 
-                // _TODO: Handle faulty requests
-                PaxosMessage::RecoveryReply {
-                    index: _,
-                    payload: _,
-                } => {
+                _ => {
                     println!(
-                        "[REQUEST] Received RecoveryReply from {}",
+                        "[REQUEST] Received invalid message from {}",
                         src_addr.to_string()
                     );
                 }
@@ -210,8 +194,6 @@ impl Node {
         println!("-------------------------------------");
         println!("[INFO] Node info:");
         println!("Address: {}", self.address.to_string());
-        println!("Leader: {}", self.leader_address.to_string());
-        println!("Load Balancer: {}", self.load_balancer_address.to_string());
         println!("State: {}", self.state.to_string());
         println!("Erasure Coding: {}", self.ec_active.to_string());
         println!("Shard count: {}", self.ec.shard_count);

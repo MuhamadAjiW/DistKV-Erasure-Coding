@@ -1,7 +1,9 @@
 {
-  "erasure_coding": true,
-  "shard_count": 4,
-  "parity_count": 2,
+  "storage": {
+    "erasure_coding": true,
+    "shard_count": 4,
+    "parity_count": 2
+  },
   "nodes": [
     {
       "ip": "0.0.0.0",

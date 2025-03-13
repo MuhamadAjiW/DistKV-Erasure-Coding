@@ -2,6 +2,7 @@ use core::fmt;
 use std::net::SocketAddr;
 
 // ---Address---
+#[derive(Debug, Clone)]
 pub struct Address {
     pub ip: String,
     pub port: u16,

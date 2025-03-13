@@ -1,12 +1,6 @@
 use std::{fmt, io, u64};
 
-use crate::{
-    base_libs::{
-        _operation::Operation,
-        _paxos_types::{FollowerRegistrationReply, FollowerRegistrationRequest},
-    },
-    classes::node::_node::Node,
-};
+use crate::{base_libs::_operation::Operation, classes::node::_node::Node};
 
 // ---PaxosState---
 #[derive(PartialEq)]
@@ -64,38 +58,6 @@ impl Node {
                     .await
             }
             PaxosState::Leader => self.leader_handle_follower_ack(src_addr, request_id).await,
-        }
-    }
-    pub async fn handle_follower_register_request(
-        &self,
-        src_addr: &String,
-        follower: &FollowerRegistrationRequest,
-    ) {
-        match self.state {
-            PaxosState::Follower => {
-                self.follower_handle_follower_register_request(&src_addr, &follower)
-                    .await
-            }
-            PaxosState::Leader => {
-                self.leader_handle_follower_register_request(&follower)
-                    .await
-            }
-        }
-    }
-    pub async fn handle_follower_register_reply(
-        &mut self,
-        src_addr: &String,
-        follower: &FollowerRegistrationReply,
-    ) {
-        match self.state {
-            PaxosState::Follower => {
-                self.follower_handle_follower_register_reply(&src_addr, &follower)
-                    .await
-            }
-            PaxosState::Leader => {
-                self.leader_handle_follower_register_reply(&src_addr, &follower)
-                    .await
-            }
         }
     }
 }

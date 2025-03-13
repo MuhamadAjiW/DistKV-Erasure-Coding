@@ -42,8 +42,9 @@ validate_config() {
     local shard_count
     local parity_count
     local node_count
-    shard_count=$(jq '.shard_count' "$path")
-    parity_count=$(jq '.parity_count' "$path")
+
+    shard_count=$(jq '.storage.shard_count' "$path")
+    parity_count=$(jq '.storage.parity_count' "$path")
     node_count=$(jq '.nodes | length' "$path")
 
     if ! [[ "$shard_count" =~ ^[0-9]+$ ]] || ! [[ "$parity_count" =~ ^[0-9]+$ ]]; then

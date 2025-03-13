@@ -17,12 +17,12 @@ async fn main() -> Result<(), io::Error> {
                 .expect("No configuration file provided");
 
             let address = Address::from_string(&follower_addr_input).unwrap();
-            println!("[INIT] Starting node with address: {}", address);
+            println!("[INIT] Starting node with address: {}", &address);
 
             let mut node = Node::from_config(address, &configuration_input).await;
-            println!("[INIT] Node started: {:?}", node);
+            println!("[INIT] Node started with address: {}", &node.address);
 
-            // node.run().await?;
+            node.run().await?;
         }
         "client" => {
             println!("Client starting...");

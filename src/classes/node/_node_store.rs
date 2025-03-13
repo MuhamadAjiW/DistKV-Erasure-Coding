@@ -22,16 +22,22 @@ use super::_node::Node;
 
 impl Node {
     pub async fn forward_to_leader(&self, payload: Vec<u8>) {
-        println!(
-            "[FORWARD] Forwarding request to leader at {}",
-            self.leader_address
-        );
+        let leader_addr = match &self.leader_address {
+            Some(addr) => addr.to_string(),
+            None => {
+                println!("Leader address is not set");
+                return;
+            }
+        };
+        let leader_addr = &leader_addr as &str;
+
+        println!("[FORWARD] Forwarding request to leader at {}", leader_addr);
         send_message(
             PaxosMessage::ClientRequest {
                 request_id: self.request_id,
                 payload: payload,
             },
-            &self.leader_address.to_string() as &str,
+            leader_addr,
         )
         .await
         .unwrap();
@@ -39,8 +45,8 @@ impl Node {
 
     pub async fn handle_client_request(
         &self,
-        _src_addr: &String,
-        _request_id: u64,
+        src_addr: &String,
+        request_id: u64,
         payload: &Vec<u8>,
     ) -> () {
         let req = Operation::parse(payload);
@@ -50,7 +56,6 @@ impl Node {
         }
         let operation = req.unwrap();
         let initial_request_id = self.request_id;
-        let load_balancer_addr = &self.load_balancer_address.to_string() as &str;
         let message = format!("Handled by {}", self.address.to_string());
         let result: String;
 
@@ -79,9 +84,7 @@ impl Node {
         );
         println!("{}", response);
 
-        send_bytes(response.as_bytes(), load_balancer_addr)
-            .await
-            .unwrap()
+        send_bytes(response.as_bytes(), &src_addr).await.unwrap()
     }
 
     pub async fn handle_recovery_request(&self, src_addr: &String, key: &str) {

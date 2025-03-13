@@ -5,28 +5,34 @@ use crate::base_libs::network::_address::Address;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-    shard_count: u32,
-    parity_count: u32,
-    nodes: Vec<NodeConfig>,
+    pub storage: StorageConfig,
+    pub nodes: Vec<NodeConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct StorageConfig {
+    pub erasure_coding: bool,
+    pub shard_count: usize,
+    pub parity_count: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NodeConfig {
-    ip: String,
-    port: u16,
-    memcached: MemcachedConfig,
-    rocks_db: RocksDbConfig,
+    pub ip: String,
+    pub port: u16,
+    pub memcached: MemcachedConfig,
+    pub rocks_db: RocksDbConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MemcachedConfig {
-    ip: String,
-    port: u16,
+    pub ip: String,
+    pub port: u16,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RocksDbConfig {
-    path: String,
+    pub path: String,
 }
 
 impl Config {
@@ -50,7 +56,6 @@ impl Config {
             }
         };
 
-        // Find the node with the matching address and return its index
         for (index, node) in config.nodes.iter().enumerate() {
             if node.ip == address.ip && node.port == address.port {
                 return Some((index, node.clone()));
@@ -77,5 +82,23 @@ impl Config {
                 panic!("Failed to parse config JSON");
             }
         }
+    }
+
+    pub fn get_node_index(config: &Config, address: &Address) -> Option<usize> {
+        for (index, node) in config.nodes.iter().enumerate() {
+            if node.ip == address.ip && node.port == address.port {
+                return Some(index);
+            }
+        }
+
+        None
+    }
+
+    pub fn get_node_addresses(config: &Config) -> Vec<Address> {
+        config
+            .nodes
+            .iter()
+            .map(|node| Address::new(&node.ip, node.port))
+            .collect()
     }
 }
