@@ -18,7 +18,17 @@ pub enum PaxosMessage {
         request_id: u64,
         source: String,
     },
+
+    // Leader Election
     Heartbeat {
+        request_id: u64,
+        source: String,
+    },
+    LeaderVote {
+        request_id: u64,
+        source: String,
+    },
+    LeaderDeclaration {
         request_id: u64,
         source: String,
     },

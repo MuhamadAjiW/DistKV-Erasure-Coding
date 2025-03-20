@@ -1,10 +1,10 @@
-use tokio::{io, net::TcpStream};
+use std::sync::Arc;
+
+use tokio::{io, net::TcpStream, sync::Mutex};
 
 use crate::{
-    base_libs::{
-        _operation::Operation, _paxos_types::PaxosMessage, network::_messages::reply_message,
-    },
-    classes::node::_node::Node,
+    base_libs::_paxos_types::PaxosMessage,
+    classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
 // TODO: Implement
@@ -22,74 +22,69 @@ impl Node {
         Ok(())
     }
 
+    pub async fn declare_leader(node_arc: Arc<Mutex<Node>>) {
+        {
+            let mut node = node_arc.lock().await;
+            println!("[ELECTION] Declaring self as leader");
+            node.state = PaxosState::Leader;
+            node.leader_address = Some(node.address.clone());
+
+            let leader_declaration = PaxosMessage::LeaderDeclaration {
+                request_id: node.request_id,
+                source: node.address.to_string(),
+            };
+            node.broadcast_message(leader_declaration).await;
+        }
+
+        let heartbeat_duration = {
+            let node = node_arc.lock().await;
+            let timeout_duration = *node.timeout_duration.read().await;
+            timeout_duration / 2
+        };
+
+        let cloned_self = node_arc.clone();
+        tokio::spawn(async move {
+            println!("[TIMEOUT] Spawning task to check for timeout");
+
+            loop {
+                tokio::time::sleep(heartbeat_duration).await;
+
+                let node = cloned_self.lock().await;
+                let heartbeat = PaxosMessage::Heartbeat {
+                    request_id: node.request_id,
+                    source: node.address.to_string(),
+                };
+                node.broadcast_message(heartbeat).await;
+
+                if !node.running {
+                    break;
+                }
+            }
+        });
+    }
+
     // ---Handlers---
-    pub async fn candidate_handle_leader_request(
-        &self,
+    pub async fn candidate_handle_leader_vote(
+        node_arc: Arc<Mutex<Node>>,
         src_addr: &String,
-        stream: TcpStream,
+        _stream: TcpStream,
         request_id: u64,
     ) {
-        let leader_addr = match &self.leader_address {
-            Some(addr) => addr.to_string(),
-            None => {
-                println!("[ERROR] Leader address is not set");
-                return;
-            }
-        };
-        let leader_addr = &leader_addr as &str;
-        if src_addr != leader_addr {
-            println!("[ERROR] Follower received request message from not a leader");
-            return;
-        }
-
-        println!("Follower received request message from leader");
-        let ack = PaxosMessage::FollowerAck {
-            request_id,
-            source: self.address.to_string(),
-        };
-        reply_message(ack, stream).await.unwrap();
-        println!("Follower acknowledged request ID: {}", request_id);
-    }
-    pub async fn candidate_handle_leader_accepted(
-        &mut self,
-        src_addr: &String,
-        stream: TcpStream,
-        request_id: u64,
-        operation: &Operation,
-    ) -> Result<(), io::Error> {
-        let leader_addr = match &self.leader_address {
-            Some(addr) => addr.to_string(),
-            None => {
-                println!("[ERROR] Leader address is not set");
-                return Ok(());
-            }
-        };
-        let leader_addr = &leader_addr as &str;
-
-        if src_addr != leader_addr {
-            println!("[ERROR] Follower received request message from not a leader");
-            return Ok(());
-        }
-
-        self.request_id = request_id;
-        self.store.persistent.process_request(operation);
-
-        if !self.store.memory.get(&operation.kv.key).is_none() {
-            self.store.memory.remove(&operation.kv.key);
-        }
-
+        let node = node_arc.lock().await;
+        node.vote_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         println!(
-            "Follower received accept message from leader:\nKey: {}, Shard: {:?}",
-            operation.kv.key, operation.kv.value
+            "[ELECTION] Received vote from {} for request ID: {}",
+            src_addr, request_id
         );
-        let ack = PaxosMessage::FollowerAck {
-            request_id,
-            source: self.address.to_string(),
-        };
-        reply_message(ack, stream).await.unwrap();
-        println!("Follower acknowledged request ID: {}", request_id);
 
-        Ok(())
+        let quorum = node.cluster_list.lock().await.len() / 2;
+
+        if node.vote_count.load(std::sync::atomic::Ordering::SeqCst) > quorum {
+            println!("[ELECTION] Received quorum votes, declaring leader");
+            drop(node); // Release lock before await
+            Node::declare_leader(node_arc.clone()).await;
+        }
     }
 
     // _TODO: handle false message

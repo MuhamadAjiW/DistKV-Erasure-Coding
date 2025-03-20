@@ -2,7 +2,9 @@ use tokio::{io, net::TcpStream};
 
 use crate::{
     base_libs::{
-        _operation::Operation, _paxos_types::PaxosMessage, network::_messages::reply_message,
+        _operation::Operation,
+        _paxos_types::PaxosMessage,
+        network::_messages::{reply_message, send_message},
     },
     classes::node::_node::Node,
 };
@@ -18,7 +20,26 @@ impl Node {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                println!("[ERROR] Leader address is not set");
+                if request_id >= self.request_id {
+                    println!(
+                        "[ELECTION] Leader address is not set, casting vote to {}",
+                        src_addr
+                    );
+                    let _ = send_message(
+                        PaxosMessage::LeaderVote {
+                            request_id,
+                            source: self.address.to_string(),
+                        },
+                        &src_addr,
+                    )
+                    .await;
+                } else {
+                    println!(
+                        "[ELECTION] Leader address is not set, requester is {} has lower request ID",
+                        src_addr
+                    );
+                }
+
                 return;
             }
         };

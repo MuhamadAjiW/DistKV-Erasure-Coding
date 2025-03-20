@@ -1,5 +1,9 @@
 use core::panic;
-use std::{io, sync::Arc, time::Duration};
+use std::{
+    io,
+    sync::{atomic::AtomicUsize, Arc},
+    time::Duration,
+};
 
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
 
@@ -30,6 +34,7 @@ pub struct Node {
     pub request_id: u64,
     pub last_heartbeat: Arc<RwLock<Instant>>,
     pub timeout_duration: Arc<RwLock<Duration>>,
+    pub vote_count: AtomicUsize,
 
     // Application attributes
     pub store: StorageController,
@@ -102,8 +107,9 @@ impl Node {
 
         let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            5000 + (rand::random::<u64>() % 20) * 200,
+            5000 + (rand::random::<u64>() % 20) * 10000,
         )));
+        let vote_count = AtomicUsize::new(0);
 
         let node = Node {
             address,
@@ -116,6 +122,7 @@ impl Node {
             request_id,
             last_heartbeat,
             timeout_duration,
+            vote_count,
             store,
             ec,
             ec_active,
@@ -168,22 +175,24 @@ impl Node {
 
             loop {
                 // println!("[TIMEOUT] Waiting for 100ms",);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(2000)).await;
                 // println!("[TIMEOUT] Waiting finished",);
 
                 let last = *last_heartbeat.read().await;
                 let timeout = *timeout_duration.read().await;
-                // println!(
-                //     "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
-                //     last.elapsed(),
-                //     timeout
-                // );
+                println!(
+                    "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
+                    last.elapsed(),
+                    timeout
+                );
 
                 if last.elapsed() > timeout {
                     println!("[TIMEOUT] Timeout reached, starting leader election...");
 
                     {
                         let mut node = node_clone.lock().await;
+                        node.vote_count
+                            .store(0, std::sync::atomic::Ordering::Relaxed);
                         let _ = node.start_leader_election().await;
                     }
 
@@ -228,6 +237,28 @@ impl Node {
                     println!("[REQUEST] Received Heartbeat from {}", source);
                     {
                         let node = node_arc.lock().await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+                PaxosMessage::LeaderVote { request_id, source } => {
+                    println!("[REQUEST] Received LeaderVote from {}", source);
+                    {
+                        let node = node_arc.lock().await;
+
+                        // _TODO: Fix the deadlock here
+                        // let node_clone = Arc::clone(&node_arc);
+                        // Node::handle_leader_vote(node_clone, &source, stream, request_id).await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+                PaxosMessage::LeaderDeclaration { request_id, source } => {
+                    println!("[REQUEST] Received LeaderDeclaration from {}", source);
+                    {
+                        let mut node = node_arc.lock().await;
+                        node.handle_leader_declaration(&source, stream, request_id)
+                            .await;
                         let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                         *last_heartbeat_mut = Instant::now();
                     }
