@@ -18,6 +18,10 @@ pub enum PaxosMessage {
         request_id: u64,
         source: String,
     },
+    Heartbeat {
+        request_id: u64,
+        source: String,
+    },
 
     // Client requests
     ClientRequest {

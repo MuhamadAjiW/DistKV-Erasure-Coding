@@ -9,6 +9,19 @@ use crate::{
 
 // TODO: Implement
 impl Node {
+    // Active command
+    pub async fn start_leader_election(&mut self) -> Result<(), io::Error> {
+        println!("[ELECTION] Starting leader election");
+
+        let leader_request = PaxosMessage::LeaderRequest {
+            request_id: self.request_id,
+            source: self.address.to_string(),
+        };
+        // self.broadcast_message(leader_request).await;
+
+        Ok(())
+    }
+
     // ---Handlers---
     pub async fn candidate_handle_leader_request(
         &self,

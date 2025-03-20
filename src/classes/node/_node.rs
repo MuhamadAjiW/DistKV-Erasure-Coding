@@ -1,4 +1,4 @@
-use core::{panic, time};
+use core::panic;
 use std::{io, sync::Arc, time::Duration};
 
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
@@ -124,109 +124,6 @@ impl Node {
         node
     }
 
-    pub async fn run(&mut self) -> Result<(), io::Error> {
-        self.running = true;
-
-        self.print_info().await;
-
-        // Timer task
-        let running_flag = Arc::new(Mutex::new(self.running));
-        let last_heartbeat_clone = Arc::clone(&self.last_heartbeat);
-        let timeout_duration = Arc::clone(&self.timeout_duration);
-        let state = Arc::new(Mutex::new(self.state.clone()));
-        let request_id = Arc::new(Mutex::new(self.request_id));
-
-        tokio::spawn(async move {
-            println!("[TIMEOUT] Spawning task to check for timeout");
-
-            loop {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                let last = *last_heartbeat_clone.read().await;
-
-                // println!(
-                //     "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
-                //     last.elapsed(),
-                //     timeout_duration
-                // );
-                if last.elapsed() > timeout_duration.read().await.clone() {
-                    println!("[TIMEOUT] Timeout reached, starting leader election...");
-                    let mut state = state.lock().await;
-                    *state = PaxosState::Candidate;
-                    let mut request_id = request_id.lock().await;
-                    *request_id += 1;
-                    let mut timeout_duration = timeout_duration.write().await;
-                    *timeout_duration =
-                        Duration::from_millis(5000 + (rand::random::<u64>() % 20) * 200);
-
-                    
-
-                    let mut last_heartbeat_mut = last_heartbeat_clone.write().await;
-                    *last_heartbeat_mut = Instant::now();
-                }
-
-                // Stop the task if the node is no longer running
-                if !*running_flag.lock().await {
-                    break;
-                }
-            }
-        });
-
-        // Event loop
-        while self.running {
-            let (stream, message) = match listen(&self.socket).await {
-                Ok(msg) => msg,
-                Err(_) => {
-                    println!("[ERROR] Received bad message on socket, continuing...");
-                    continue;
-                }
-            };
-
-            match message {
-                // Paxos messages
-                PaxosMessage::LeaderRequest { request_id, source } => {
-                    println!("[REQUEST] Received LeaderRequest from {}", source);
-                    self.handle_leader_request(&source, stream, request_id)
-                        .await
-                }
-
-                PaxosMessage::LeaderAccepted {
-                    request_id,
-                    operation,
-                    source,
-                } => {
-                    println!("[REQUEST] Received LeaderAccepted from {}", source);
-                    self.handle_leader_accepted(&source, stream, request_id, &operation)
-                        .await?;
-                }
-
-                PaxosMessage::FollowerAck { request_id, source } => {
-                    println!("[REQUEST] Received FollowerAck from {}", source);
-                    self.handle_follower_ack(&source, stream, request_id).await
-                }
-
-                // Client messages
-                PaxosMessage::ClientRequest { operation, source } => {
-                    println!("[REQUEST] Received ClientRequest from {}", source);
-                    self.handle_client_request(&source, stream, operation).await;
-                }
-
-                PaxosMessage::RecoveryRequest { key, source } => {
-                    println!("[REQUEST] Received RecoveryRequest from {}", source);
-                    self.handle_recovery_request(&source, stream, &key).await
-                }
-
-                _ => {
-                    println!(
-                        "[REQUEST] Received invalid message from {:?}",
-                        stream.peer_addr()
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     // Information logging
     pub async fn print_info(&self) {
         println!("-------------------------------------");
@@ -250,5 +147,157 @@ impl Node {
             println!("Erasure coding is not active");
         }
         println!("-------------------------------------");
+    }
+
+    pub async fn run(node_arc: Arc<Mutex<Node>>) -> Result<(), io::Error> {
+        println!("[INIT] Running node...");
+        let (last_heartbeat, timeout_duration) = {
+            let mut node = node_arc.lock().await;
+            node.running = true;
+            (
+                Arc::clone(&node.last_heartbeat),
+                Arc::clone(&node.timeout_duration),
+            )
+        };
+
+        // Clone for timer task
+        let node_clone = Arc::clone(&node_arc);
+
+        tokio::spawn(async move {
+            println!("[TIMEOUT] Spawning task to check for timeout");
+
+            loop {
+                // println!("[TIMEOUT] Waiting for 100ms",);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                // println!("[TIMEOUT] Waiting finished",);
+
+                let last = *last_heartbeat.read().await;
+                let timeout = *timeout_duration.read().await;
+                // println!(
+                //     "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
+                //     last.elapsed(),
+                //     timeout
+                // );
+
+                if last.elapsed() > timeout {
+                    println!("[TIMEOUT] Timeout reached, starting leader election...");
+
+                    {
+                        let mut node = node_clone.lock().await;
+                        let _ = node.start_leader_election().await;
+                    }
+
+                    let mut last_heartbeat_mut = last_heartbeat.write().await;
+                    *last_heartbeat_mut = Instant::now();
+                }
+
+                // println!("[TIMEOUT] Checking running",);
+                let running = {
+                    let node = node_clone.lock().await;
+                    node.running
+                };
+
+                if !running {
+                    // println!("[TIMEOUT] Running is false, stopping",);
+                    break;
+                }
+            }
+        });
+
+        // Main loop
+        loop {
+            let socket = {
+                let node = node_arc.lock().await;
+                node.socket.clone()
+            };
+
+            let (stream, message) = match listen(&socket).await {
+                Ok(msg) => msg,
+                Err(_) => {
+                    println!("[ERROR] Received bad message on socket, continuing...");
+                    continue;
+                }
+            };
+
+            match message {
+                // Leader election
+                PaxosMessage::Heartbeat {
+                    request_id: _,
+                    source,
+                } => {
+                    println!("[REQUEST] Received Heartbeat from {}", source);
+                    {
+                        let node = node_arc.lock().await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+
+                // Transactional
+                PaxosMessage::LeaderRequest { request_id, source } => {
+                    println!("[REQUEST] Received LeaderRequest from {}", source);
+                    {
+                        let node = node_arc.lock().await;
+                        node.handle_leader_request(&source, stream, request_id)
+                            .await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+
+                PaxosMessage::LeaderAccepted {
+                    request_id,
+                    operation,
+                    source,
+                } => {
+                    println!("[REQUEST] Received LeaderAccepted from {}", source);
+                    {
+                        let mut node = node_arc.lock().await;
+                        node.handle_leader_accepted(&source, stream, request_id, &operation)
+                            .await?;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+
+                PaxosMessage::FollowerAck { request_id, source } => {
+                    println!("[REQUEST] Received FollowerAck from {}", source);
+                    {
+                        let node = node_arc.lock().await;
+                        node.handle_follower_ack(&source, stream, request_id).await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+
+                // Client request
+                PaxosMessage::ClientRequest { operation, source } => {
+                    println!("[REQUEST] Received ClientRequest from {}", source);
+                    {
+                        let node = node_arc.lock().await;
+                        node.handle_client_request(&source, stream, operation).await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+
+                PaxosMessage::RecoveryRequest { key, source } => {
+                    println!("[REQUEST] Received RecoveryRequest from {}", source);
+                    {
+                        let node = node_arc.lock().await;
+                        node.handle_recovery_request(&source, stream, &key).await;
+                        let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                        *last_heartbeat_mut = Instant::now();
+                    }
+                }
+
+                _ => {
+                    println!(
+                        "[REQUEST] Received invalid message from {:?}",
+                        stream.peer_addr()
+                    );
+                }
+            }
+        }
     }
 }

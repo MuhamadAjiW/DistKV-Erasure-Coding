@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, sync::Arc};
 
 use distkv::{
     base_libs::{
@@ -11,6 +11,7 @@ use distkv::{
     },
     classes::node::_node::Node,
 };
+use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
@@ -26,10 +27,11 @@ async fn main() -> Result<(), io::Error> {
             let address = Address::from_string(&follower_addr_input).unwrap();
             println!("[INIT] Starting node with address: {}", &address);
 
-            let mut node = Node::from_config(address, &configuration_input).await;
+            let node = Node::from_config(address, &configuration_input).await;
             println!("[INIT] Node started with address: {}", &node.address);
 
-            node.run().await?;
+            let node_arc = Arc::new(Mutex::new(node));
+            Node::run(node_arc).await?;
         }
         "client" => {
             println!("Client starting...");
