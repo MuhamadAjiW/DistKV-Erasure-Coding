@@ -17,7 +17,7 @@ impl Node {
             request_id: self.request_id,
             source: self.address.to_string(),
         };
-        // self.broadcast_message(leader_request).await;
+        self.broadcast_message(leader_request).await;
 
         Ok(())
     }

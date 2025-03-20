@@ -22,20 +22,6 @@ use crate::base_libs::{
 use super::_node::Node;
 
 impl Node {
-    pub async fn forward_to_leader(&self, message: PaxosMessage) {
-        let leader_addr = match &self.leader_address {
-            Some(addr) => addr.to_string(),
-            None => {
-                println!("[ERROR] Leader address is not set");
-                return;
-            }
-        };
-        let leader_addr = &leader_addr as &str;
-
-        println!("[FORWARD] Forwarding request to leader at {}", leader_addr);
-        send_message(message, leader_addr).await.unwrap();
-    }
-
     pub async fn handle_client_request(
         &self,
         _src_addr: &String,
