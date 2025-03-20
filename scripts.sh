@@ -94,6 +94,7 @@ run_node() {
     echo "Starting node on ${addr}:${port}"
 
     cargo run -- node ${addr}:${port} ${config_file} > ./log/node_${addr}_${port}.log
+    # cargo run -- node ${addr}:${port} ${config_file}
 }
 
 run_memcached() {

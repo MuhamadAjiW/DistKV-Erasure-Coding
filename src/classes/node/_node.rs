@@ -2,9 +2,10 @@ use core::panic;
 use std::{
     io,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::RwLock, time::Instant};
 
 use crate::{
     base_libs::{
@@ -31,6 +32,8 @@ pub struct Node {
     pub cluster_index: usize,
     pub state: PaxosState,
     pub request_id: u64,
+    pub last_heartbeat: Arc<RwLock<Instant>>,
+    pub timeout_duration: Duration,
 
     // Application attributes
     pub store: StorageController,
@@ -101,6 +104,9 @@ impl Node {
             None
         };
 
+        let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
+        let timeout_duration = Duration::from_millis(5000 + (rand::random::<u64>() % 20) * 200);
+
         let node = Node {
             address,
             socket,
@@ -110,6 +116,8 @@ impl Node {
             cluster_index,
             state,
             request_id,
+            last_heartbeat,
+            timeout_duration,
             store,
             ec,
             ec_active,
@@ -118,13 +126,48 @@ impl Node {
         node
     }
 
-    // Main Event Loop
     pub async fn run(&mut self) -> Result<(), io::Error> {
         self.running = true;
 
         self.print_info();
-        while self.running {
-            let (stream, message) = match listen(&self.socket).await {
+
+        // Timer task
+        let running_flag = Arc::new(Mutex::new(self.running));
+        let last_heartbeat_clone = Arc::clone(&self.last_heartbeat);
+        let timeout_duration = self.timeout_duration;
+        let self_ref = self;
+
+        tokio::spawn(async move {
+            println!("[TIMEOUT] Spawning task to check for timeout");
+
+            loop {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let last = *last_heartbeat_clone.read().await;
+
+                // println!(
+                //     "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
+                //     last.elapsed(),
+                //     timeout_duration
+                // );
+                if last.elapsed() > timeout_duration {
+                    println!("[TIMEOUT] Timeout reached, starting leader election...");
+
+                    // _TODO: Implement leader election
+
+                    let mut last_heartbeat_mut = last_heartbeat_clone.write().await;
+                    *last_heartbeat_mut = Instant::now();
+                }
+
+                // Stop the task if the node is no longer running
+                if !*running_flag.lock().unwrap() {
+                    break;
+                }
+            }
+        });
+
+        // Event loop
+        while self_ref.running {
+            let (stream, message) = match listen(&self_ref.socket).await {
                 Ok(msg) => msg,
                 Err(_) => {
                     println!("[ERROR] Received bad message on socket, continuing...");
@@ -136,7 +179,8 @@ impl Node {
                 // Paxos messages
                 PaxosMessage::LeaderRequest { request_id, source } => {
                     println!("[REQUEST] Received LeaderRequest from {}", source);
-                    self.handle_leader_request(&source, stream, request_id)
+                    self_ref
+                        .handle_leader_request(&source, stream, request_id)
                         .await
                 }
 
@@ -146,24 +190,31 @@ impl Node {
                     source,
                 } => {
                     println!("[REQUEST] Received LeaderAccepted from {}", source);
-                    self.handle_leader_accepted(&source, stream, request_id, &operation)
+                    self_ref
+                        .handle_leader_accepted(&source, stream, request_id, &operation)
                         .await?;
                 }
 
                 PaxosMessage::FollowerAck { request_id, source } => {
                     println!("[REQUEST] Received FollowerAck from {}", source);
-                    self.handle_follower_ack(&source, stream, request_id).await
+                    self_ref
+                        .handle_follower_ack(&source, stream, request_id)
+                        .await
                 }
 
                 // Client messages
                 PaxosMessage::ClientRequest { operation, source } => {
                     println!("[REQUEST] Received ClientRequest from {}", source);
-                    self.handle_client_request(&source, stream, operation).await;
+                    self_ref
+                        .handle_client_request(&source, stream, operation)
+                        .await;
                 }
 
                 PaxosMessage::RecoveryRequest { key, source } => {
                     println!("[REQUEST] Received RecoveryRequest from {}", source);
-                    self.handle_recovery_request(&source, stream, &key).await
+                    self_ref
+                        .handle_recovery_request(&source, stream, &key)
+                        .await
                 }
 
                 _ => {

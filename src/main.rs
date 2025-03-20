@@ -71,18 +71,6 @@ async fn main() -> Result<(), io::Error> {
                     eprintln!("Failed to send message: {}", e);
                 }
             }
-
-            // let socket = UdpSocket::bind("127.0.0.1:50000")
-            //     .await
-            //     .expect("Failed to bind socket");
-            // println!("Sending message to {}...", node_addr_input);
-            // socket.send_to(&data, node_addr_input).await?;
-
-            // println!("Waiting for response...");
-            // let mut buf = [0; 65536];
-            // let (size, client_addr) = socket.recv_from(&mut buf).await.unwrap();
-            // let message = String::from_utf8_lossy(&buf[..size]).to_string();
-            // println!("Client received reply from {}: {}", client_addr, message);
         }
         _ => {
             panic!("Invalid command! Use 'node' or 'client'.");
