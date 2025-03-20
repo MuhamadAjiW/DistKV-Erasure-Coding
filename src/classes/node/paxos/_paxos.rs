@@ -5,7 +5,7 @@ use tokio::net::TcpStream;
 use crate::{base_libs::_operation::Operation, classes::node::_node::Node};
 
 // ---PaxosState---
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum PaxosState {
     Follower,
     Candidate,

@@ -78,7 +78,7 @@ impl StorageController {
         match self.persistent.get(key) {
             Some(value) => {
                 let follower_list: Vec<String> = {
-                    let followers_guard = node.cluster_list.lock().unwrap();
+                    let followers_guard = node.cluster_list.lock().await;
                     followers_guard.iter().cloned().collect()
                 };
 
@@ -122,7 +122,7 @@ impl StorageController {
 
     pub async fn update_value(&self, operation: &Operation, node: &Node) -> Option<String> {
         let follower_list: Vec<String> = {
-            let followers_guard = node.cluster_list.lock().unwrap();
+            let followers_guard = node.cluster_list.lock().await;
             followers_guard.iter().cloned().collect()
         };
 

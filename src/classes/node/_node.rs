@@ -1,11 +1,7 @@
-use core::panic;
-use std::{
-    io,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use core::{panic, time};
+use std::{io, sync::Arc, time::Duration};
 
-use tokio::{net::TcpListener, sync::RwLock, time::Instant};
+use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
 
 use crate::{
     base_libs::{
@@ -33,7 +29,7 @@ pub struct Node {
     pub state: PaxosState,
     pub request_id: u64,
     pub last_heartbeat: Arc<RwLock<Instant>>,
-    pub timeout_duration: Duration,
+    pub timeout_duration: Arc<RwLock<Duration>>,
 
     // Application attributes
     pub store: StorageController,
@@ -105,7 +101,9 @@ impl Node {
         };
 
         let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
-        let timeout_duration = Duration::from_millis(5000 + (rand::random::<u64>() % 20) * 200);
+        let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
+            5000 + (rand::random::<u64>() % 20) * 200,
+        )));
 
         let node = Node {
             address,
@@ -129,13 +127,14 @@ impl Node {
     pub async fn run(&mut self) -> Result<(), io::Error> {
         self.running = true;
 
-        self.print_info();
+        self.print_info().await;
 
         // Timer task
         let running_flag = Arc::new(Mutex::new(self.running));
         let last_heartbeat_clone = Arc::clone(&self.last_heartbeat);
-        let timeout_duration = self.timeout_duration;
-        let self_ref = self;
+        let timeout_duration = Arc::clone(&self.timeout_duration);
+        let state = Arc::new(Mutex::new(self.state.clone()));
+        let request_id = Arc::new(Mutex::new(self.request_id));
 
         tokio::spawn(async move {
             println!("[TIMEOUT] Spawning task to check for timeout");
@@ -149,25 +148,32 @@ impl Node {
                 //     last.elapsed(),
                 //     timeout_duration
                 // );
-                if last.elapsed() > timeout_duration {
+                if last.elapsed() > timeout_duration.read().await.clone() {
                     println!("[TIMEOUT] Timeout reached, starting leader election...");
+                    let mut state = state.lock().await;
+                    *state = PaxosState::Candidate;
+                    let mut request_id = request_id.lock().await;
+                    *request_id += 1;
+                    let mut timeout_duration = timeout_duration.write().await;
+                    *timeout_duration =
+                        Duration::from_millis(5000 + (rand::random::<u64>() % 20) * 200);
 
-                    // _TODO: Implement leader election
+                    
 
                     let mut last_heartbeat_mut = last_heartbeat_clone.write().await;
                     *last_heartbeat_mut = Instant::now();
                 }
 
                 // Stop the task if the node is no longer running
-                if !*running_flag.lock().unwrap() {
+                if !*running_flag.lock().await {
                     break;
                 }
             }
         });
 
         // Event loop
-        while self_ref.running {
-            let (stream, message) = match listen(&self_ref.socket).await {
+        while self.running {
+            let (stream, message) = match listen(&self.socket).await {
                 Ok(msg) => msg,
                 Err(_) => {
                     println!("[ERROR] Received bad message on socket, continuing...");
@@ -179,8 +185,7 @@ impl Node {
                 // Paxos messages
                 PaxosMessage::LeaderRequest { request_id, source } => {
                     println!("[REQUEST] Received LeaderRequest from {}", source);
-                    self_ref
-                        .handle_leader_request(&source, stream, request_id)
+                    self.handle_leader_request(&source, stream, request_id)
                         .await
                 }
 
@@ -190,31 +195,24 @@ impl Node {
                     source,
                 } => {
                     println!("[REQUEST] Received LeaderAccepted from {}", source);
-                    self_ref
-                        .handle_leader_accepted(&source, stream, request_id, &operation)
+                    self.handle_leader_accepted(&source, stream, request_id, &operation)
                         .await?;
                 }
 
                 PaxosMessage::FollowerAck { request_id, source } => {
                     println!("[REQUEST] Received FollowerAck from {}", source);
-                    self_ref
-                        .handle_follower_ack(&source, stream, request_id)
-                        .await
+                    self.handle_follower_ack(&source, stream, request_id).await
                 }
 
                 // Client messages
                 PaxosMessage::ClientRequest { operation, source } => {
                     println!("[REQUEST] Received ClientRequest from {}", source);
-                    self_ref
-                        .handle_client_request(&source, stream, operation)
-                        .await;
+                    self.handle_client_request(&source, stream, operation).await;
                 }
 
                 PaxosMessage::RecoveryRequest { key, source } => {
                     println!("[REQUEST] Received RecoveryRequest from {}", source);
-                    self_ref
-                        .handle_recovery_request(&source, stream, &key)
-                        .await
+                    self.handle_recovery_request(&source, stream, &key).await
                 }
 
                 _ => {
@@ -230,7 +228,7 @@ impl Node {
     }
 
     // Information logging
-    pub fn print_info(&self) {
+    pub async fn print_info(&self) {
         println!("-------------------------------------");
         println!("[INFO] Node info:");
         println!("Address: {}", &self.address.to_string());
@@ -241,7 +239,7 @@ impl Node {
         } else {
             println!("Leader: None");
         }
-        println!("Cluster list: {:?}", &self.cluster_list.lock().unwrap());
+        println!("Cluster list: {:?}", &self.cluster_list.lock().await);
         println!("Cluster index: {}", &self.cluster_index);
 
         if let Some(_ec) = &self.ec {
