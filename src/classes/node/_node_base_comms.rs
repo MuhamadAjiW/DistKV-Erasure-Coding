@@ -13,12 +13,12 @@ impl Node {
         };
         let leader_addr = &leader_addr as &str;
 
-        println!("[FORWARD] Forwarding request to leader at {}", leader_addr);
+        println!("[MESSAGE] Forwarding request to leader at {}", leader_addr);
         send_message(message, leader_addr).await.unwrap();
     }
 
     pub async fn broadcast_message(&self, message: PaxosMessage) {
-        println!("[ELECTION] Broadcasting message: {:?}", message);
+        println!("[MESSAGE] Broadcasting message: {:?}", message);
         let cluster_list = self.cluster_list.lock().await;
         for addr in cluster_list.iter() {
             if addr == &self.address.to_string() {

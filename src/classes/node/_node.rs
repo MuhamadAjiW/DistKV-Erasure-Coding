@@ -207,8 +207,6 @@ impl Node {
                         // );
 
                         if last.elapsed() > timeout {
-                            println!("[TIMEOUT] Timeout reached, starting leader election...");
-
                             {
                                 let mut node = node_clone.lock().await;
                                 node.state = PaxosState::Candidate;
@@ -276,7 +274,11 @@ impl Node {
                 PaxosMessage::LeaderDeclaration { request_id, source } => {
                     println!("[REQUEST] Received LeaderDeclaration from {}", source);
                     {
+                        println!("[DEBUG] Setting up new leader");
+
                         let mut node = node_arc.lock().await;
+                        println!("[DEBUG] Lock obtained");
+
                         node.handle_leader_declaration(&source, stream, request_id)
                             .await;
                         let mut last_heartbeat_mut = node.last_heartbeat.write().await;

@@ -118,11 +118,11 @@ impl Node {
     ) {
         match self.state {
             PaxosState::Follower | PaxosState::Candidate => {
-                if self.request_id < request_id {
-                    println!("[ELECTION] Received leader declaration from {}", src_addr);
+                if self.request_id <= request_id {
                     self.request_id = request_id;
                     self.leader_address = Address::from_string(&src_addr);
                     self.state = PaxosState::Follower;
+                    println!("[ELECTION] leader is now {:?}", self.leader_address);
                 }
             }
             _ => {
