@@ -1,6 +1,6 @@
-use std::{fmt, io, sync::Arc, u64};
+use std::{fmt, io, u64};
 
-use tokio::{net::TcpStream, sync::Mutex};
+use tokio::net::TcpStream;
 
 use crate::{
     base_libs::{_operation::Operation, network::_address::Address},
@@ -91,24 +91,20 @@ impl Node {
     }
 
     pub async fn handle_leader_vote(
-        node_arc: Arc<Mutex<Node>>,
+        &mut self,
         src_addr: &String,
         stream: TcpStream,
         request_id: u64,
     ) {
-        let state = {
-            let node = node_arc.lock().await;
-            node.state.clone()
-        };
-
-        match state {
+        match self.state {
             PaxosState::Candidate => {
-                Node::candidate_handle_leader_vote(node_arc, src_addr, stream, request_id).await;
+                self.candidate_handle_leader_vote(src_addr, stream, request_id)
+                    .await;
             }
             _ => {
                 println!(
                     "[ERROR] Node received LeaderVote message in state {:?}",
-                    state
+                    self.state
                 );
             }
         }

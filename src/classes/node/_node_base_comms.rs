@@ -21,6 +21,9 @@ impl Node {
         println!("[ELECTION] Broadcasting message: {:?}", message);
         let cluster_list = self.cluster_list.lock().await;
         for addr in cluster_list.iter() {
+            if addr == &self.address.to_string() {
+                continue;
+            }
             send_message(message.clone(), addr).await.unwrap();
         }
     }

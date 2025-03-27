@@ -174,41 +174,64 @@ impl Node {
             println!("[TIMEOUT] Spawning task to check for timeout");
 
             loop {
-                // println!("[TIMEOUT] Waiting for 100ms",);
-                tokio::time::sleep(Duration::from_millis(2000)).await;
-                // println!("[TIMEOUT] Waiting finished",);
-
-                let last = *last_heartbeat.read().await;
-                let timeout = *timeout_duration.read().await;
-                println!(
-                    "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
-                    last.elapsed(),
-                    timeout
-                );
-
-                if last.elapsed() > timeout {
-                    println!("[TIMEOUT] Timeout reached, starting leader election...");
-
-                    {
-                        let mut node = node_clone.lock().await;
-                        node.vote_count
-                            .store(0, std::sync::atomic::Ordering::Relaxed);
-                        let _ = node.start_leader_election().await;
-                    }
-
-                    let mut last_heartbeat_mut = last_heartbeat.write().await;
-                    *last_heartbeat_mut = Instant::now();
-                }
-
-                // println!("[TIMEOUT] Checking running",);
-                let running = {
+                let state = {
                     let node = node_clone.lock().await;
-                    node.running
+                    node.state
                 };
 
-                if !running {
-                    // println!("[TIMEOUT] Running is false, stopping",);
-                    break;
+                match state {
+                    PaxosState::Leader => {
+                        let heartbeat_delay = *timeout_duration.read().await / 2;
+
+                        tokio::time::sleep(heartbeat_delay).await;
+                        println!("[TIMEOUT] Timeout reached, sending heartbeat...");
+
+                        {
+                            let mut node = node_clone.lock().await;
+                            node.vote_count
+                                .store(0, std::sync::atomic::Ordering::Relaxed);
+                            let _ = node.send_heartbeat().await;
+                        }
+                    }
+                    _ => {
+                        // println!("[TIMEOUT] Waiting for 100ms",);
+                        tokio::time::sleep(Duration::from_millis(2000)).await;
+                        // println!("[TIMEOUT] Waiting finished",);
+
+                        let last = *last_heartbeat.read().await;
+                        let timeout = *timeout_duration.read().await;
+                        // println!(
+                        //     "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
+                        //     last.elapsed(),
+                        //     timeout
+                        // );
+
+                        if last.elapsed() > timeout {
+                            println!("[TIMEOUT] Timeout reached, starting leader election...");
+
+                            {
+                                let mut node = node_clone.lock().await;
+                                node.state = PaxosState::Candidate;
+                                node.vote_count
+                                    .store(0, std::sync::atomic::Ordering::Relaxed);
+                                let _ = node.start_leader_election().await;
+                            }
+
+                            let mut last_heartbeat_mut = last_heartbeat.write().await;
+                            *last_heartbeat_mut = Instant::now();
+                        }
+
+                        // println!("[TIMEOUT] Checking running",);
+                        let running = {
+                            let node = node_clone.lock().await;
+                            node.running
+                        };
+
+                        if !running {
+                            // println!("[TIMEOUT] Running is false, stopping",);
+                            break;
+                        }
+                    }
                 }
             }
         });
@@ -244,11 +267,8 @@ impl Node {
                 PaxosMessage::LeaderVote { request_id, source } => {
                     println!("[REQUEST] Received LeaderVote from {}", source);
                     {
-                        let node = node_arc.lock().await;
-
-                        // _TODO: Fix the deadlock here
-                        // let node_clone = Arc::clone(&node_arc);
-                        // Node::handle_leader_vote(node_clone, &source, stream, request_id).await;
+                        let mut node = node_arc.lock().await;
+                        node.handle_leader_vote(&source, stream, request_id).await;
                         let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                         *last_heartbeat_mut = Instant::now();
                     }
