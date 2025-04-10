@@ -213,7 +213,7 @@ impl Node {
                                 node.state = PaxosState::Candidate;
                                 node.request_id += 1;
                                 node.vote_count
-                                    .store(0, std::sync::atomic::Ordering::Relaxed);
+                                    .store(1, std::sync::atomic::Ordering::Relaxed);
                                 let _ = node.start_leader_election().await;
                             }
 
