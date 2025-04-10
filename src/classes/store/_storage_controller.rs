@@ -127,7 +127,7 @@ impl StorageController {
         };
 
         let majority = follower_list.len() / 2 + 1;
-        let mut acks = node.broadcast_prepare(&follower_list).await;
+        let mut acks = node.broadcast_accept(&follower_list).await;
 
         if acks >= majority {
             self.memory.process_request(&operation);
@@ -149,12 +149,12 @@ impl StorageController {
                 });
 
                 acks = node
-                    .broadcast_accept_ec(&follower_list, operation, &encoded_shard)
+                    .broadcast_learn_ec(&follower_list, operation, &encoded_shard)
                     .await
             } else {
                 self.persistent.process_request(operation);
                 acks = node
-                    .broadcast_accept_replication(&follower_list, operation)
+                    .broadcast_learn_replication(&follower_list, operation)
                     .await
             }
 

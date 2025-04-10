@@ -13,17 +13,20 @@ use tokio::{
     time::timeout,
 };
 
-use crate::base_libs::{
-    _operation::{BinKV, Operation, OperationType},
-    _paxos_types::PaxosMessage,
-    network::_messages::{receive_message, reply_message, reply_string, send_message},
+use crate::{
+    base_libs::{
+        _operation::{BinKV, Operation, OperationType},
+        _paxos_types::PaxosMessage,
+        network::_messages::{receive_message, reply_message, reply_string, send_message},
+    },
+    classes::node::paxos::_paxos::PaxosState,
 };
 
 use super::_node::Node;
 
 impl Node {
     pub async fn handle_client_request(
-        &self,
+        &mut self,
         _src_addr: &String,
         stream: TcpStream,
         operation: Operation,
@@ -42,6 +45,10 @@ impl Node {
                 result = "PONG".to_string();
             }
             OperationType::GET | OperationType::DELETE | OperationType::SET => {
+                if self.state == PaxosState::Leader {
+                    self.request_id += 1;
+                }
+
                 println!("Received request: {:?}", operation);
                 result = self
                     .store
@@ -57,7 +64,7 @@ impl Node {
         );
         println!("{}", response);
 
-        reply_string(result.as_str(), stream).await.unwrap();
+        _ = reply_string(result.as_str(), stream).await;
     }
 
     pub async fn handle_recovery_request(&self, src_addr: &String, stream: TcpStream, key: &str) {
@@ -81,7 +88,7 @@ impl Node {
         }
     }
 
-    pub async fn broadcast_prepare(&self, follower_list: &Vec<String>) -> usize {
+    pub async fn broadcast_accept(&self, follower_list: &Vec<String>) -> usize {
         if follower_list.is_empty() {
             println!("No followers registered. Cannot proceed.");
             return 0;
@@ -103,7 +110,7 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderRequest {
+                    PaxosMessage::LeaderAccepted {
                         request_id: request_id,
                         source: source.to_string(),
                     },
@@ -157,7 +164,7 @@ impl Node {
         acks
     }
 
-    pub async fn broadcast_accept_ec(
+    pub async fn broadcast_learn_ec(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -192,8 +199,8 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderAccepted {
-                        request_id: request_id,
+                    PaxosMessage::LeaderLearn {
+                        request_id,
                         operation: sent_operation,
                         source: source.to_string(),
                     },
@@ -247,7 +254,7 @@ impl Node {
         acks
     }
 
-    pub async fn broadcast_accept_replication(
+    pub async fn broadcast_learn_replication(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -274,9 +281,9 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderAccepted {
-                        request_id: request_id,
-                        operation: operation,
+                    PaxosMessage::LeaderLearn {
+                        request_id,
+                        operation,
                         source: source.to_string(),
                     },
                     follower_addr.as_str(),

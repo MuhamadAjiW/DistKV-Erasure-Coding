@@ -11,6 +11,10 @@ pub enum PaxosMessage {
     },
     LeaderAccepted {
         request_id: u64,
+        source: String,
+    },
+    LeaderLearn {
+        request_id: u64,
         operation: Operation,
         source: String,
     },

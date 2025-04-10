@@ -14,39 +14,47 @@ impl Node {
     pub async fn follower_handle_leader_request(
         &self,
         src_addr: &String,
-        stream: TcpStream,
+        _stream: TcpStream,
         request_id: u64,
     ) {
+        if request_id >= self.request_id {
+            println!(
+                "[ELECTION] Leader address is not set, casting vote to {}",
+                src_addr
+            );
+            let _ = send_message(
+                PaxosMessage::LeaderVote {
+                    request_id,
+                    source: self.address.to_string(),
+                },
+                &src_addr,
+            )
+            .await;
+        } else {
+            println!(
+                "[ELECTION] Leader address is not set, requester is {} has lower request ID",
+                src_addr
+            );
+        }
+    }
+
+    pub async fn follower_handle_leader_accepted(
+        &mut self,
+        src_addr: &String,
+        stream: TcpStream,
+        request_id: u64,
+    ) -> Result<(), io::Error> {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                if request_id >= self.request_id {
-                    println!(
-                        "[ELECTION] Leader address is not set, casting vote to {}",
-                        src_addr
-                    );
-                    let _ = send_message(
-                        PaxosMessage::LeaderVote {
-                            request_id,
-                            source: self.address.to_string(),
-                        },
-                        &src_addr,
-                    )
-                    .await;
-                } else {
-                    println!(
-                        "[ELECTION] Leader address is not set, requester is {} has lower request ID",
-                        src_addr
-                    );
-                }
-
-                return;
+                println!("[ERROR] Leader address is not set");
+                return Ok(());
             }
         };
         let leader_addr = &leader_addr as &str;
         if src_addr != leader_addr {
             println!("[ERROR] Follower received request message from not a leader");
-            return;
+            return Ok(());
         }
 
         println!("Follower received request message from leader");
@@ -56,8 +64,11 @@ impl Node {
         };
         _ = reply_message(ack, stream).await;
         println!("Follower acknowledged request ID: {}", request_id);
+
+        Ok(())
     }
-    pub async fn follower_handle_leader_accepted(
+
+    pub async fn follower_handle_leader_learn(
         &mut self,
         src_addr: &String,
         stream: TcpStream,
@@ -98,7 +109,4 @@ impl Node {
 
         Ok(())
     }
-
-    // _TODO: handle false message
-    pub async fn follower_handle_follower_ack(&self, _src_addr: &String, _request_id: u64) {}
 }

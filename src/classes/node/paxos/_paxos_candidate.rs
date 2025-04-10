@@ -53,7 +53,4 @@ impl Node {
             self.declare_leader().await;
         }
     }
-
-    // _TODO: handle false message
-    pub async fn candidate_handle_follower_ack(&self, _src_addr: &String, _request_id: u64) {}
 }
