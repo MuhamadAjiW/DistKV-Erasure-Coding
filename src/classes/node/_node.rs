@@ -107,7 +107,7 @@ impl Node {
 
         let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            5000 + (rand::random::<u64>() % 20) * 10000,
+            1000 + (rand::random::<u64>() % 500),
         )));
         let vote_count = AtomicUsize::new(0);
 
@@ -210,6 +210,7 @@ impl Node {
                             {
                                 let mut node = node_clone.lock().await;
                                 node.state = PaxosState::Candidate;
+                                node.request_id += 1;
                                 node.vote_count
                                     .store(0, std::sync::atomic::Ordering::Relaxed);
                                 let _ = node.start_leader_election().await;
@@ -288,9 +289,12 @@ impl Node {
 
                 // Transactional
                 PaxosMessage::LeaderRequest { request_id, source } => {
-                    println!("[REQUEST] Received LeaderRequest from {}", source);
+                    println!(
+                        "[REQUEST] Received LeaderRequest from {}, request id is {}",
+                        source, request_id
+                    );
                     {
-                        let node = node_arc.lock().await;
+                        let mut node = node_arc.lock().await;
                         node.handle_leader_request(&source, stream, request_id)
                             .await;
                         let mut last_heartbeat_mut = node.last_heartbeat.write().await;

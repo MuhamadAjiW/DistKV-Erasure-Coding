@@ -14,7 +14,7 @@ impl Node {
         let leader_addr = &leader_addr as &str;
 
         println!("[MESSAGE] Forwarding request to leader at {}", leader_addr);
-        send_message(message, leader_addr).await.unwrap();
+        _ = send_message(message, leader_addr).await;
     }
 
     pub async fn broadcast_message(&self, message: PaxosMessage) {
@@ -24,7 +24,7 @@ impl Node {
             if addr == &self.address.to_string() {
                 continue;
             }
-            send_message(message.clone(), addr).await.unwrap();
+            _ = send_message(message.clone(), addr).await;
         }
     }
 }

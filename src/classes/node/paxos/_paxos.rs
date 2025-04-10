@@ -26,7 +26,12 @@ impl fmt::Display for PaxosState {
 
 // ---Node Commands---
 impl Node {
-    pub async fn handle_leader_request(&self, source: &String, stream: TcpStream, request_id: u64) {
+    pub async fn handle_leader_request(
+        &mut self,
+        source: &String,
+        stream: TcpStream,
+        request_id: u64,
+    ) {
         match self.state {
             PaxosState::Follower => {
                 self.follower_handle_leader_request(source, stream, request_id)
@@ -36,12 +41,21 @@ impl Node {
                 self.leader_handle_leader_request(source, stream, request_id)
                     .await
             }
-
-            _ => {
-                println!(
-                    "[ERROR] Node received LeaderRequest message in state {:?}",
-                    self.state
-                );
+            PaxosState::Candidate => {
+                if request_id > self.request_id {
+                    println!(
+                        "[ELECTION] {:?} Node received a leader declaration with a higher request id",
+                        self.state
+                    );
+                    self.state = PaxosState::Follower;
+                    self.follower_handle_leader_request(source, stream, request_id)
+                        .await
+                } else {
+                    println!(
+                        "[ELECTION] {:?} Node received a leader declaration with a higher request id",
+                        self.state
+                    );
+                }
             }
         }
     }
