@@ -54,7 +54,7 @@ impl Node {
             request_id,
             source: self.address.to_string(),
         };
-        reply_message(ack, stream).await.unwrap();
+        _ = reply_message(ack, stream).await;
         println!("Follower acknowledged request ID: {}", request_id);
     }
     pub async fn follower_handle_leader_accepted(
@@ -93,7 +93,7 @@ impl Node {
             request_id,
             source: self.address.to_string(),
         };
-        reply_message(ack, stream).await.unwrap();
+        _ = reply_message(ack, stream).await;
         println!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())

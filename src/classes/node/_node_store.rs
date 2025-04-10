@@ -64,7 +64,7 @@ impl Node {
         match self.store.persistent.get(key) {
             Some(value) => {
                 // Send the data to the requestor
-                reply_message(
+                _ = reply_message(
                     PaxosMessage::RecoveryReply {
                         index: self.cluster_index,
                         payload: value,
@@ -72,8 +72,7 @@ impl Node {
                     },
                     stream,
                 )
-                .await
-                .unwrap();
+                .await;
                 println!("Sent data request to follower at {}", src_addr);
             }
             None => {
