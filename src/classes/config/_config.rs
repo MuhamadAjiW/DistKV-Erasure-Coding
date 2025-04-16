@@ -20,6 +20,7 @@ pub struct StorageConfig {
 pub struct NodeConfig {
     pub ip: String,
     pub port: u16,
+    pub http_port: u16,
     pub memcached: MemcachedConfig,
     pub rocks_db: RocksDbConfig,
 }

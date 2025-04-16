@@ -66,6 +66,14 @@ validate_config() {
         exit 1
     fi
 
+    local unique_http_nodes
+    unique_http_nodes=$(jq -r '.nodes[] | "\(.ip):\(.http_port)"' "$path" | sort | uniq | wc -l)
+
+    if [[ "$unique_http_nodes" -ne "$node_count" ]]; then
+        echo "Error: Duplicate node http addresses found in the configuration."
+        exit 1
+    fi
+
     local unique_memcached
     unique_memcached=$(jq -r '.nodes[] | "\(.memcached.ip):\(.memcached.port)"' "$path" | sort | uniq | wc -l)
 
@@ -93,8 +101,8 @@ run_node() {
 
     echo "Starting node on ${addr}:${port}"
 
-    # cargo run -- node ${addr}:${port} ${config_file} > ./log/node_${addr}_${port}.log
-    cargo run -- node ${addr}:${port} ${config_file}
+    cargo run -- node ${addr}:${port} ${config_file} > ./log/node_${addr}_${port}.log
+    # cargo run -- node ${addr}:${port} ${config_file}
 }
 
 run_memcached() {
