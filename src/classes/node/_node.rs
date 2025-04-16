@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use actix_web::{web, App, HttpServer};
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
 
 use crate::{
@@ -380,11 +381,46 @@ impl Node {
         });
     }
 
+    pub fn run_http_loop(node_arc: Arc<Mutex<Node>>) {
+        println!("[INIT] Starting HTTP loop...");
+
+        // Actix web is not compatible with tokio spawn
+        std::thread::spawn(move || {
+            let sys = actix_web::rt::System::new();
+
+            sys.block_on(async move {
+                let address = {
+                    let node = node_arc.lock().await;
+                    node.http_address.clone()
+                };
+
+                println!(
+                    "[INIT] Starting HTTP server on {}:{}",
+                    address.ip, address.port
+                );
+
+                HttpServer::new(move || {
+                    App::new()
+                        .app_data(web::Data::new(node_arc.clone()))
+                        .route("", web::get().to(Node::http_healthcheck))
+                        .route("/store", web::get().to(Node::http_get))
+                        .route("/store", web::post().to(Node::http_post))
+                })
+                .bind((address.ip, address.port))
+                .expect("[ERROR] Failed to bind HTTP server")
+                .run()
+                .await
+                .expect("[ERROR] Actix server crashed");
+            })
+        });
+    }
+
     pub async fn run(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Running node...");
 
         Node::run_timer_task(node_arc.clone());
         Node::run_tcp_loop(node_arc.clone());
+        Node::run_http_loop(node_arc.clone());
 
         loop {}
     }
