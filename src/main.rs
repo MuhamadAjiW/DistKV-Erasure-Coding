@@ -31,7 +31,7 @@ async fn main() -> Result<(), io::Error> {
             println!("[INIT] Node started with address: {}", &node.address);
 
             let node_arc = Arc::new(Mutex::new(node));
-            Node::run(node_arc).await?;
+            Node::run(node_arc).await;
         }
         "client" => {
             println!("Client starting...");
