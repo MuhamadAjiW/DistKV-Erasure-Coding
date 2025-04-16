@@ -402,7 +402,7 @@ impl Node {
                 HttpServer::new(move || {
                     App::new()
                         .app_data(web::Data::new(node_arc.clone()))
-                        .route("", web::get().to(Node::http_healthcheck))
+                        .route("/", web::get().to(Node::http_healthcheck))
                         .route("/store", web::get().to(Node::http_get))
                         .route("/store", web::post().to(Node::http_post))
                 })
