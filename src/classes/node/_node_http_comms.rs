@@ -32,6 +32,8 @@ struct BaseResponse {
 
 impl Node {
     pub async fn http_healthcheck(node_data: web::Data<Arc<Mutex<Node>>>) -> impl Responder {
+        println!("[REQUEST] Received healthcheck requesst");
+
         let node = node_data.lock().await;
         node.print_info().await;
         HttpResponse::Ok().body("HTTP server running just fine")
@@ -41,7 +43,7 @@ impl Node {
         node_data: web::Data<Arc<Mutex<Node>>>,
         query: web::Query<GetQuery>,
     ) -> impl Responder {
-        println!("[REQUEST] get request received for key: {}", query.key);
+        println!("[REQUEST] GET request received for key: {}", query.key);
         let node = node_data.lock().await;
         let operation = Operation {
             op_type: OperationType::GET,
@@ -72,7 +74,7 @@ impl Node {
         body: web::Json<PostBody>,
     ) -> impl Responder {
         println!(
-            "[REQUEST] post request received for key: {}, value {}",
+            "[REQUEST] POST request received for key: {}, value {}",
             body.key, body.value
         );
         let mut node = node_data.lock().await;
@@ -106,7 +108,7 @@ impl Node {
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<DeleteBody>,
     ) -> impl Responder {
-        println!("[REQUEST] delete request received for key: {}", body.key);
+        println!("[REQUEST] DELETE request received for key: {}", body.key);
         let mut node = node_data.lock().await;
         node.request_id += 1;
 
