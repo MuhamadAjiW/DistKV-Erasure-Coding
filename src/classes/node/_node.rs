@@ -405,6 +405,7 @@ impl Node {
                         .route("/", web::get().to(Node::http_healthcheck))
                         .route("/store", web::get().to(Node::http_get))
                         .route("/store", web::post().to(Node::http_post))
+                        .route("/store", web::delete().to(Node::http_delete))
                 })
                 .bind((address.ip, address.port))
                 .expect("[ERROR] Failed to bind HTTP server")
