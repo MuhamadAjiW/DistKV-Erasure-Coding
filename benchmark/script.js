@@ -13,7 +13,7 @@ export const options = {
 
 export default function () {
     const key = Math.random().toString(36).substring(2, 12);
-    const value = Math.random().toString(36).substring(2, 12);
+    const value = 'x'.repeat(1024 * 10);
 
     const encodedKey = b64encode(key);
     const encodedValue = b64encode(value);
@@ -34,13 +34,13 @@ export default function () {
     // console.log('GET Response Status:', getRes.status);
     // console.log('GET Response Body:', getRes.body);
     
-    const delRes = http.post(`${BASE_URL}/kv/deleterange`, JSON.stringify({ key: encodedKey }), {
-        headers: { 'Content-Type': 'application/json' },
-    });
-    check(delRes, { 'GET succeeded': (r) => r.status === 200 });
+    // const delRes = http.post(`${BASE_URL}/kv/deleterange`, JSON.stringify({ key: encodedKey }), {
+    //     headers: { 'Content-Type': 'application/json' },
+    // });
+    // check(delRes, { 'DELETE succeeded': (r) => r.status === 200 });
 
     // console.log('DELETE Response Status:', delRes.status);
     // console.log('DELETE Response Body:', delRes.body);
 
-    sleep(0.1);
+    sleep(1);
 }

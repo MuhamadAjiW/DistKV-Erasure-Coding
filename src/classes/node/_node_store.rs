@@ -31,17 +31,15 @@ impl Node {
         stream: TcpStream,
         operation: Operation,
     ) {
-        let initial_request_id = self.request_id;
-        let message = format!("Handled by {}", self.address.to_string());
         let result: String;
 
         match operation.op_type {
             OperationType::BAD => {
-                println!("Invalid request");
+                println!("[REQUEST] Invalid request");
                 result = "Invalid request".to_string();
             }
             OperationType::PING => {
-                println!("Received PING request");
+                println!("[REQUEST] Received PING request");
                 result = "PONG".to_string();
             }
             OperationType::GET | OperationType::DELETE | OperationType::SET => {
@@ -49,7 +47,7 @@ impl Node {
                     self.request_id += 1;
                 }
 
-                println!("Received request: {:?}", operation);
+                println!("[REQUEST] Received request: {:?}", operation.op_type);
                 result = self
                     .store
                     .process_request(&operation, &self)
@@ -57,12 +55,6 @@ impl Node {
                     .unwrap_or_default();
             }
         }
-
-        let response = format!(
-            "[RESPONSE] Request ID: {}; Message: {}; Reply: {}.",
-            initial_request_id, message, result
-        );
-        println!("{}", response);
 
         _ = reply_string(result.as_str(), stream).await;
     }

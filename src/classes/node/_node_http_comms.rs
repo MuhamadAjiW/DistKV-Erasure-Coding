@@ -41,9 +41,9 @@ impl Node {
 
     pub async fn http_get(
         node_data: web::Data<Arc<Mutex<Node>>>,
-        body: web::Query<GetBody>,
+        body: web::Json<GetBody>,
     ) -> impl Responder {
-        println!("[REQUEST] GET request received for key: {}", body.key);
+        println!("[REQUEST] GET request received");
         let node = node_data.lock().await;
         let operation = Operation {
             op_type: OperationType::GET,
@@ -73,10 +73,7 @@ impl Node {
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<PostBody>,
     ) -> impl Responder {
-        println!(
-            "[REQUEST] POST request received for key: {}, value {}",
-            body.key, body.value
-        );
+        println!("[REQUEST] POST request received");
         let mut node = node_data.lock().await;
         node.request_id += 1;
 
@@ -108,10 +105,11 @@ impl Node {
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<DeleteBody>,
     ) -> impl Responder {
-        println!("[REQUEST] DELETE request received for key: {}", body.key);
+        println!("[REQUEST] DELETE request received");
         let mut node = node_data.lock().await;
         node.request_id += 1;
 
+        println!("[REQUEST] Creating operation for DELETE request");
         let operation = Operation {
             op_type: OperationType::DELETE,
             kv: BinKV {
@@ -119,17 +117,21 @@ impl Node {
                 value: vec![],
             },
         };
+
+        println!("[REQUEST] Processing DELETE request");
         let result = node
             .store
             .process_request(&operation, &node)
             .await
             .unwrap_or_default();
 
+        println!("[REQUEST] DELETE request processed");
         let response = BaseResponse {
             key: body.key.clone(),
             response: result,
         };
 
+        println!("[REQUEST] DELETE request response created");
         let mut last_heartbeat_mut = node.last_heartbeat.write().await;
         *last_heartbeat_mut = Instant::now();
 

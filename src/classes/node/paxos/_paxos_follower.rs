@@ -6,20 +6,20 @@ use crate::{
         _paxos_types::PaxosMessage,
         network::_messages::{reply_message, send_message},
     },
-    classes::node::_node::Node,
+    classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
 impl Node {
     // ---Handlers---
     pub async fn follower_handle_leader_request(
-        &self,
+        &mut self,
         src_addr: &String,
         _stream: TcpStream,
         request_id: u64,
     ) {
         if request_id >= self.request_id {
             println!(
-                "[ELECTION] Leader address is not set, casting vote to {}",
+                "[ELECTION] Received leader request with a higher request_id, casting vote to {}",
                 src_addr
             );
             let _ = send_message(
@@ -30,6 +30,7 @@ impl Node {
                 &src_addr,
             )
             .await;
+            self.state = PaxosState::Follower;
         } else {
             println!(
                 "[ELECTION] Leader address is not set, requester is {} has lower request ID",
@@ -96,10 +97,7 @@ impl Node {
             self.store.memory.remove(&operation.kv.key);
         }
 
-        println!(
-            "Follower received accept message from leader:\nKey: {}, Shard: {:?}",
-            operation.kv.key, operation.kv.value
-        );
+        println!("Follower received accept message from leader",);
         let ack = PaxosMessage::FollowerAck {
             request_id,
             source: self.address.to_string(),

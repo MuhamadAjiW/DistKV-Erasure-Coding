@@ -129,6 +129,7 @@ impl StorageController {
         let majority = follower_list.len() / 2 + 1;
         let mut acks = node.broadcast_accept(&follower_list).await;
 
+        // _TODO: Delete operation is still broken here
         if acks >= majority {
             self.memory.process_request(&operation);
             if node.ec_active {

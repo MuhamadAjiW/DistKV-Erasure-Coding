@@ -110,7 +110,7 @@ impl Node {
 
         let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            3000 + (rand::random::<u64>() % 40) * 50,
+            5000 + (rand::random::<u64>() % 100) * 50,
         )));
         let vote_count = AtomicUsize::new(0);
 
@@ -187,7 +187,7 @@ impl Node {
 
                 match state {
                     PaxosState::Leader => {
-                        let heartbeat_delay = *timeout_duration.read().await / 2;
+                        let heartbeat_delay = *timeout_duration.read().await / 3;
 
                         tokio::time::sleep(heartbeat_delay).await;
                         println!("[TIMEOUT] Timeout reached, sending heartbeat...");
