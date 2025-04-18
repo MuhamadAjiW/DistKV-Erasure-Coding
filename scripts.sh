@@ -173,6 +173,15 @@ run_all() {
     echo "All services started."
 }
 
+bench_system() {
+    echo "Running system benchmark..."
+}
+
+bench_baseline() {
+    echo "Running benchmark on etcd for baseline..."
+    k6 run ./benchmark/script.js 
+}
+
 if [ "$1" == "run_node" ]; then
     run_node "${@:2}"
 elif [ "$1" == "run_memcached" ]; then
@@ -181,6 +190,10 @@ elif [ "$1" == "run_all" ]; then
     run_all "${@:2}"
 elif [ "$1" == "stop_all" ]; then
     kill_all_screen_session
+elif [ "$1" == "bench_system" ]; then
+    bench_system "${@:2}"
+elif [ "$1" == "bench_baseline" ]; then
+    bench_baseline
 else
-    echo "Usage: $0 {run_memcached|run_node|run_all|stop_all} [args]"
+    echo "Usage: $0 {run_memcached|run_node|run_all|stop_all|bench_system|bench_baseline} [args]"
 fi
