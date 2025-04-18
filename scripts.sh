@@ -175,11 +175,16 @@ run_all() {
 
 bench_system() {
     echo "Running system benchmark..."
+    if [ -n "$1" ]; then
+        k6 run -e "$1" ./benchmark/script.js
+    else
+        echo "Error: No environment variable provided for benchmark, provide with at least BASE_URL=<leader>"
+    fi
 }
 
 bench_baseline() {
     echo "Running benchmark on etcd for baseline..."
-    k6 run ./benchmark/script.js 
+    k6 run ./benchmark/script.js
 }
 
 if [ "$1" == "run_node" ]; then
