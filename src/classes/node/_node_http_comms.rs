@@ -9,7 +9,7 @@ use crate::base_libs::_operation::{BinKV, Operation, OperationType};
 use super::_node::Node;
 
 #[derive(Deserialize)]
-pub struct GetQuery {
+pub struct GetBody {
     key: String,
 }
 
@@ -41,14 +41,14 @@ impl Node {
 
     pub async fn http_get(
         node_data: web::Data<Arc<Mutex<Node>>>,
-        query: web::Query<GetQuery>,
+        body: web::Query<GetBody>,
     ) -> impl Responder {
-        println!("[REQUEST] GET request received for key: {}", query.key);
+        println!("[REQUEST] GET request received for key: {}", body.key);
         let node = node_data.lock().await;
         let operation = Operation {
             op_type: OperationType::GET,
             kv: BinKV {
-                key: query.key.clone(),
+                key: body.key.clone(),
                 value: vec![],
             },
         };
@@ -59,7 +59,7 @@ impl Node {
             .unwrap_or_default();
 
         let response = BaseResponse {
-            key: query.key.clone(),
+            key: body.key.clone(),
             response: result,
         };
 
@@ -69,7 +69,7 @@ impl Node {
         HttpResponse::Ok().json(response)
     }
 
-    pub async fn http_post(
+    pub async fn http_put(
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<PostBody>,
     ) -> impl Responder {
