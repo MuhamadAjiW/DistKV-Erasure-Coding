@@ -19,8 +19,8 @@ This project is a simple Paxos-based distributed system implemented in Rust usin
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/akramab/paxos-rust.git
-   cd paxos-distributed-system
+   git clone https://github.com/MuhamadAjiW/DistKV-Erasure-Coding
+   cd DistKV-Erasure-Coding
    ```
 2. Build the project:
    ```bash
