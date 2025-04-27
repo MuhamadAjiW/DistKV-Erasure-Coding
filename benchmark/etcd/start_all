@@ -1,0 +1,26 @@
+#!/bin/bash
+
+echo "Starting node 1"
+etcd --config-file ./node1/etcd.yaml > ./node1/node.log 2>&1 &
+pid1=$!
+
+echo "Starting node 2"
+etcd --config-file ./node2/etcd.yaml > ./node2/node.log 2>&1 &
+pid2=$!
+
+echo "Starting node 3"
+etcd --config-file ./node3/etcd.yaml > ./node3/node.log 2>&1 &
+pid3=$!
+
+echo "All nodes started"
+cleanup() {
+    echo "Stopping etcd instances..."
+    kill "$pid1" "$pid2" "$pid3"
+    wait "$pid1" "$pid2" "$pid3"
+    echo "All etcd instances stopped."
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+wait

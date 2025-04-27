@@ -1,0 +1,9 @@
+name: node2
+data-dir: ~/etcd-cluster/node2
+initial-advertise-peer-urls: http://localhost:2480
+listen-peer-urls: http://localhost:2480
+advertise-client-urls: http://localhost:2479
+listen-client-urls: http://localhost:2479
+initial-cluster: node1=http://localhost:2380,node2=http://localhost:2480,node3=http://localhost:2580
+initial-cluster-state: new
+initial-cluster-token: etcd-cluster
