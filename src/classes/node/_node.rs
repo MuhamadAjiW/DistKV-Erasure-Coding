@@ -111,7 +111,7 @@ impl Node {
 
         let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            5000 + (rand::random::<u64>() % 2000),
+            5000 + (rand::random::<u64>() % 100) * 50,
         )));
         let vote_count = AtomicUsize::new(0);
 
@@ -198,13 +198,10 @@ impl Node {
                         }
                     }
                     _ => {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+
                         let last = *last_heartbeat.read().await;
                         let timeout = *timeout_duration.read().await;
-                        let remaining_duration = timeout
-                            .checked_sub(last.elapsed())
-                            .unwrap_or_else(|| Duration::from_secs(0));
-
-                        tokio::time::sleep(remaining_duration).await;
 
                         if last.elapsed() > timeout {
                             {
