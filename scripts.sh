@@ -98,11 +98,18 @@ run_node() {
     local addr="${1:-127.0.0.1}"
     local port="${2:-8081}"
     local config_file="${3:-./etc/config.json}"
+    local file_output="${4:-false}"
 
     echo "Starting node on ${addr}:${port}"
 
-    # cargo run -- node ${addr}:${port} ${config_file} > ./log/node_${addr}_${port}.log
-    cargo run -- node ${addr}:${port} ${config_file}
+    if [ "$file_output" == "true" ]; then
+        echo "Logging to file: ./log/node_${addr}_${port}.log"
+        mkdir -p ./log
+        cargo run -- node ${addr}:${port} ${config_file} > ./log/node_${addr}_${port}.log
+    else
+        echo "Logging to terminal"
+        cargo run -- node ${addr}:${port} ${config_file}
+    fi
 }
 
 run_memcached() {
@@ -147,7 +154,8 @@ run_memcached() {
 }
 
 run_all() {
-    local config_path="${1:-./etc/config.json}"
+    local file_output="${1:-false}"
+    local config_path="${2:-./etc/config.json}"
 
     validate_config "$config_path"
 
@@ -166,7 +174,7 @@ run_all() {
         addr=$(jq -r ".nodes[$i].ip" "$config_path")
         port=$(jq -r ".nodes[$i].port" "$config_path")
 
-        start_terminal "./scripts.sh run_node ${addr} ${port}"
+        start_terminal "./scripts.sh run_node ${addr} ${port} ${config_path} ${file_output}"
         sleep 1
     done
 
