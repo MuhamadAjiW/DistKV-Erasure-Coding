@@ -1,3 +1,5 @@
+use tracing::instrument;
+
 use crate::{
     base_libs::{
         _operation::{BinKV, Operation, OperationType},
@@ -8,8 +10,6 @@ use crate::{
 
 use super::{_memory_store::MemoryStore, _persistent_store::PersistentStore};
 
-// _NOTE: Storage Controller should only be used inside node that owns it
-// It may cause memory problems otherwise
 pub struct StorageController {
     pub persistent: PersistentStore,
     pub memory: MemoryStore,
@@ -23,6 +23,7 @@ impl StorageController {
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn process_request(&self, request: &Operation, node: &Node) -> Option<String> {
         let mut response: Option<String> = None;
 
@@ -60,6 +61,7 @@ impl StorageController {
 
 // EC logic
 impl StorageController {
+    #[instrument(skip_all)]
     pub async fn get_from_cluster(
         &self,
         key: &String,
@@ -120,6 +122,7 @@ impl StorageController {
         Ok(Some(result))
     }
 
+    #[instrument(skip_all)]
     pub async fn update_value(&self, operation: &Operation, node: &Node) -> Option<String> {
         let follower_list: Vec<String> = {
             let followers_guard = node.cluster_list.lock().await;

@@ -6,6 +6,7 @@ use std::{
 
 use actix_web::{web, App, HttpServer};
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
+use tracing::instrument;
 
 use crate::{
     base_libs::{
@@ -110,7 +111,7 @@ impl Node {
 
         let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            5000 + (rand::random::<u64>() % 100) * 50,
+            5000 + (rand::random::<u64>() % 2000),
         )));
         let vote_count = AtomicUsize::new(0);
 
@@ -162,8 +163,6 @@ impl Node {
 
     pub fn run_timer_task(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Starting timer task...");
-
-        // Clone for timer task
         let node_clone = Arc::clone(&node_arc);
 
         tokio::spawn(async move {
@@ -183,7 +182,6 @@ impl Node {
                     let node = node_clone.lock().await;
                     node.state
                 };
-                // println!("[TIMEOUT] Current state: {:?}", state);
 
                 match state {
                     PaxosState::Leader => {
@@ -200,17 +198,13 @@ impl Node {
                         }
                     }
                     _ => {
-                        // println!("[TIMEOUT] Waiting for 100ms",);
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                        // println!("[TIMEOUT] Waiting finished",);
-
                         let last = *last_heartbeat.read().await;
                         let timeout = *timeout_duration.read().await;
-                        // println!(
-                        //     "[TIMEOUT] Checking timeout elapsed: {:?}, timeout duration:{:?}",
-                        //     last.elapsed(),
-                        //     timeout
-                        // );
+                        let remaining_duration = timeout
+                            .checked_sub(last.elapsed())
+                            .unwrap_or_else(|| Duration::from_secs(0));
+
+                        tokio::time::sleep(remaining_duration).await;
 
                         if last.elapsed() > timeout {
                             {
@@ -226,14 +220,12 @@ impl Node {
                             *last_heartbeat_mut = Instant::now();
                         }
 
-                        // println!("[TIMEOUT] Checking running",);
                         let running = {
                             let node = node_clone.lock().await;
                             node.running
                         };
 
                         if !running {
-                            // println!("[TIMEOUT] Running is false, stopping",);
                             break;
                         }
                     }
@@ -242,6 +234,7 @@ impl Node {
         });
     }
 
+    #[instrument(skip_all)]
     pub fn run_tcp_loop(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Starting TCP loop...");
 
@@ -381,6 +374,7 @@ impl Node {
         });
     }
 
+    #[instrument(skip_all)]
     pub fn run_http_loop(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Starting HTTP loop...");
 
@@ -416,6 +410,7 @@ impl Node {
         });
     }
 
+    #[instrument(skip_all)]
     pub async fn run(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Running node...");
 

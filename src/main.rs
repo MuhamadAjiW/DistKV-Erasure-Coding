@@ -12,9 +12,24 @@ use distkv::{
     classes::node::_node::Node,
 };
 use tokio::sync::Mutex;
+use tracing::instrument;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 #[tokio::main]
+#[instrument]
 async fn main() -> Result<(), io::Error> {
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_ids(true)
+        .with_target(false)
+        .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global default subscriber");
+
     let role = std::env::args().nth(1).expect("No role provided");
 
     match role.as_str() {

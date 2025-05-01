@@ -1,4 +1,5 @@
 use memcache::Client;
+use tracing::instrument;
 
 use crate::base_libs::_operation::{Operation, OperationType};
 
@@ -13,12 +14,14 @@ impl MemoryStore {
         };
     }
 
+    #[instrument(skip_all)]
     pub fn set(&self, key: &str, value: &str) -> () {
         self.memcached
             .set(key, value, 0)
             .expect("Failed to set memcached");
     }
 
+    #[instrument(skip_all)]
     pub fn get(&self, key: &str) -> Option<String> {
         if let Ok(Some(value)) = self.memcached.get(key) {
             return Some(value);
@@ -27,12 +30,14 @@ impl MemoryStore {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn remove(&self, key: &str) -> () {
         self.memcached
             .delete(key)
             .expect("Failed to delete from memcached");
     }
 
+    #[instrument(skip_all)]
     pub fn process_request(&self, request: &Operation) -> Option<String> {
         let mut response: Option<String> = None;
 

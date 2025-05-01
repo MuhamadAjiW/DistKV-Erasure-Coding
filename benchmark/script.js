@@ -3,7 +3,7 @@ import { check, sleep } from 'k6';
 import { b64encode } from 'k6/encoding';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:2379/v3';
-const VUS = __ENV.VUS || 100;
+const VUS = __ENV.VUS || 1;
 const DURATION = __ENV.DURATION || '10s';
 
 export const options = {
