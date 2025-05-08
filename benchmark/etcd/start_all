@@ -20,15 +20,15 @@ echo "Starting node 5"
 etcd --config-file ./node5/etcd.yaml > ./node5/node.log 2>&1 &
 pid5=$!
 
-echo "Starting node 6"
-etcd --config-file ./node6/etcd.yaml > ./node6/node.log 2>&1 &
-pid6=$!
+# echo "Starting node 6"
+# etcd --config-file ./node6/etcd.yaml > ./node6/node.log 2>&1 &
+# pid6=$!
 
 echo "All nodes started"
 cleanup() {
     echo "Stopping etcd instances..."
-    kill "$pid1" "$pid2" "$pid3" "$pid4" "$pid5" "$pid6"
-    wait "$pid1" "$pid2" "$pid3" "$pid4" "$pid5" "$pid6"
+    kill "$pid1" "$pid2" "$pid3" "$pid4" "$pid5"
+    wait "$pid1" "$pid2" "$pid3" "$pid4" "$pid5"
     echo "All etcd instances stopped."
     exit 0
 }

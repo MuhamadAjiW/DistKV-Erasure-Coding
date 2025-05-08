@@ -1,8 +1,8 @@
 {
   "storage": {
     "erasure_coding": true,
-    "shard_count": 4,
-    "parity_count": 2
+    "shard_count": 2,
+    "parity_count": 3
   },
   "nodes": [
     {
@@ -63,18 +63,6 @@
       },
       "rocks_db": {
         "path": "./db/node-5"
-      }
-    },
-    {
-      "ip": "0.0.0.0",
-      "port": 8185,
-      "http_port": 8085,
-      "memcached": {
-        "ip": "0.0.0.0",
-        "port": 18085
-      },
-      "rocks_db": {
-        "path": "./db/node-6"
       }
     }
   ]
