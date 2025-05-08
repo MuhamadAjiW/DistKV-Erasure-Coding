@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tracing::instrument;
 
 use crate::base_libs::{_paxos_types::PaxosMessage, network::_messages::send_message};
@@ -16,19 +18,33 @@ impl Node {
         };
         let leader_addr = &leader_addr as &str;
 
-        println!("[MESSAGE] Forwarding request to leader at {}", leader_addr);
+        // println!("[MESSAGE] Forwarding request to leader at {}", leader_addr);
         _ = send_message(message, leader_addr).await;
     }
 
     #[instrument(skip_all)]
     pub async fn broadcast_message(&self, message: PaxosMessage) {
-        println!("[MESSAGE] Broadcasting message: {:?}", message);
+        // println!("[MESSAGE] Broadcasting message: {:?}", message);
         let cluster_list = self.cluster_list.lock().await;
-        for addr in cluster_list.iter() {
-            if addr == &self.address.to_string() {
+        let addresses: Vec<String> = cluster_list.iter().cloned().collect();
+        drop(cluster_list);
+
+        let self_addr = self.address.to_string();
+        let message_arc = Arc::new(message);
+
+        let mut join_handles = Vec::new();
+        
+        for addr in addresses {
+            if addr == self_addr {
                 continue;
             }
-            _ = send_message(message.clone(), addr).await;
+            let message_clone = Arc::clone(&message_arc);
+            let addr_clone = addr.clone();
+
+            let handle = tokio::spawn(async move {
+                _ = send_message((*message_clone).clone(), &addr_clone).await;
+            });
+            join_handles.push(handle);
         }
     }
 }

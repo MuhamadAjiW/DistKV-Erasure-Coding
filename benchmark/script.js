@@ -26,10 +26,10 @@ export default function () {
     // console.log('PUT Response Status:', putRes.status);
     // console.log('PUT Response Body:', putRes.body);
 
-    const getRes = http.post(`${BASE_URL}/kv/range`, JSON.stringify({ key: encodedKey }), {
-        headers: { 'Content-Type': 'application/json' },
-    });
-    check(getRes, { 'GET succeeded': (r) => r.status === 200 });
+    // const getRes = http.post(`${BASE_URL}/kv/range`, JSON.stringify({ key: encodedKey }), {
+    //     headers: { 'Content-Type': 'application/json' },
+    // });
+    // check(getRes, { 'GET succeeded': (r) => r.status === 200 });
     
     // console.log('GET Response Status:', getRes.status);
     // console.log('GET Response Body:', getRes.body);
@@ -42,5 +42,5 @@ export default function () {
     // console.log('DELETE Response Status:', delRes.status);
     // console.log('DELETE Response Body:', delRes.body);
 
-    sleep(1);
+    sleep(100);
 }

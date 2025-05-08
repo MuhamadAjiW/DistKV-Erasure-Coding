@@ -20,9 +20,6 @@ use tracing_subscriber::fmt::format::FmtSpan;
 async fn main() -> Result<(), io::Error> {
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_ids(true)
         .with_target(false)
         .with_ansi(false)
         .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
