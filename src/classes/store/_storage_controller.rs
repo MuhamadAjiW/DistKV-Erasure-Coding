@@ -49,7 +49,11 @@ impl StorageController {
                     response = Some("FORWARDED".to_string());
                 }
                 PaxosState::Leader => {
-                    response = self.update_value(&request, node).await;
+                    if self.accept_value(&request, node).await {
+                        response = Some("OK".to_string());
+                    } else {
+                        response = Some("FAILED".to_string());
+                    }
                 }
             },
             _ => {}
@@ -123,7 +127,7 @@ impl StorageController {
     }
 
     #[instrument(skip_all)]
-    pub async fn update_value(&self, operation: &Operation, node: &Node) -> Option<String> {
+    pub async fn accept_value(&self, operation: &Operation, node: &Node) -> bool {
         let follower_list: Vec<String> = {
             let followers_guard = node.cluster_list.lock().await;
             followers_guard.iter().cloned().collect()
@@ -132,46 +136,46 @@ impl StorageController {
         let majority = follower_list.len() / 2 + 1;
         let mut acks = node.broadcast_accept(&follower_list).await;
 
-        // _TODO: Delete operation is still broken here
-        if acks >= majority {
-            self.memory.process_request(&operation);
-            if node.ec_active {
-                let ec = match &node.ec {
-                    Some(ec) => ec,
-                    None => {
-                        println!("[ERROR] EC service is missing");
-                        return None;
-                    }
-                };
-                let encoded_shard = ec.encode(&operation.kv.value);
-                self.persistent.process_request(&Operation {
-                    op_type: operation.op_type.clone(),
-                    kv: BinKV {
-                        key: operation.kv.key.clone(),
-                        value: encoded_shard[node.cluster_index].clone(),
-                    },
-                });
-
-                acks = node
-                    .broadcast_learn_ec(&follower_list, operation, &encoded_shard)
-                    .await
-            } else {
-                self.persistent.process_request(operation);
-                acks = node
-                    .broadcast_learn_replication(&follower_list, operation)
-                    .await
-            }
-
-            if acks >= majority {
-                println!("Request succeeded: Accept broadcast is accepted by majority");
-                return Some("OK".to_string());
-            } else {
-                println!("Request failed: Accept broadcast is not accepted by majority");
-            }
-        } else {
+        if acks < majority {
             println!("Request failed: Prepare broadcast is not accepted by majority");
+            return false;
         }
 
-        return Some("FAILED".to_string());
+        // _TODO: Delete operation is still broken here
+        self.memory.process_request(&operation);
+        if node.ec_active {
+            let ec = match &node.ec {
+                Some(ec) => ec,
+                None => {
+                    println!("[ERROR] EC service is missing");
+                    return false;
+                }
+            };
+            let encoded_shard = ec.encode(&operation.kv.value);
+            self.persistent.process_request(&Operation {
+                op_type: operation.op_type.clone(),
+                kv: BinKV {
+                    key: operation.kv.key.clone(),
+                    value: encoded_shard[node.cluster_index].clone(),
+                },
+            });
+
+            acks = node
+                .broadcast_learn_ec(&follower_list, operation, &encoded_shard)
+                .await
+        } else {
+            self.persistent.process_request(operation);
+            acks = node
+                .broadcast_learn_replication(&follower_list, operation)
+                .await
+        }
+
+        if acks < majority {
+            println!("Request failed: Accept broadcast is not accepted by majority");
+            return false;
+        }
+
+        println!("Request succeeded: Accept broadcast is accepted by majority");
+        return true;
     }
 }

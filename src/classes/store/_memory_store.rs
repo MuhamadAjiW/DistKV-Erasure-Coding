@@ -15,7 +15,7 @@ impl MemoryStore {
     }
 
     #[instrument(skip_all)]
-    pub fn set(&self, key: &str, value: &str) -> () {
+    pub fn set(&self, key: &str, value: &str) {
         self.memcached
             .set(key, value, 0)
             .expect("Failed to set memcached");
