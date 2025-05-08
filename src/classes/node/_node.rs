@@ -301,7 +301,7 @@ impl Node {
                         }
                     }
 
-                    PaxosMessage::LeaderAccepted { request_id, source } => {
+                    PaxosMessage::LeaderLearn { request_id, source } => {
                         println!("[REQUEST] Received LeaderAccepted from {}", source);
                         {
                             let mut node = node_arc.lock().await;
@@ -313,7 +313,7 @@ impl Node {
                         }
                     }
 
-                    PaxosMessage::LeaderLearn {
+                    PaxosMessage::LeaderAccepted {
                         request_id,
                         operation,
                         source,
