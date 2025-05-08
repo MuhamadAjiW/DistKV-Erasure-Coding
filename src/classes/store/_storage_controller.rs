@@ -134,12 +134,7 @@ impl StorageController {
         };
 
         let majority = follower_list.len() / 2 + 1;
-        let mut acks = node.broadcast_learn(&follower_list).await;
-
-        if acks < majority {
-            println!("Request failed: Prepare broadcast is not accepted by majority");
-            return false;
-        }
+        let acks;
 
         // _TODO: Delete operation is still broken here
         self.memory.process_request(&operation);
@@ -172,6 +167,25 @@ impl StorageController {
 
         if acks < majority {
             println!("Request failed: Accept broadcast is not accepted by majority");
+            return false;
+        }
+
+        println!("Request succeeded: Accept broadcast is accepted by majority");
+        return true;
+    }
+
+    #[instrument(skip_all)]
+    pub async fn learn_value(&self, node: &Node) -> bool {
+        let follower_list: Vec<String> = {
+            let followers_guard = node.cluster_list.lock().await;
+            followers_guard.iter().cloned().collect()
+        };
+
+        let majority = follower_list.len() / 2 + 1;
+        let acks = node.broadcast_learn(&follower_list).await;
+
+        if acks < majority {
+            println!("Request failed: Prepare broadcast is not accepted by majority");
             return false;
         }
 
