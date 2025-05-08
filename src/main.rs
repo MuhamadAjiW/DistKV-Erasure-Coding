@@ -24,6 +24,7 @@ async fn main() -> Result<(), io::Error> {
         .with_line_number(true)
         .with_thread_ids(true)
         .with_target(false)
+        .with_ansi(false)
         .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
         .finish();
 
