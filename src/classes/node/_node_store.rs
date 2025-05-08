@@ -172,34 +172,47 @@ impl Node {
             return 0;
         }
 
+        let majority = follower_list.len() / 2 + 1;
         let mut acks = 1;
+
         let mut tasks = JoinSet::new();
-        let source = Arc::new(self.address.clone());
+
+        // Share as much as possible and clone as little as possible
+        let source = Arc::new(self.address.clone().to_string());
+        let leader_addr = self.address.to_string();
+        let request_id = Arc::new(self.request_id.clone());
+        let shared_op_type = Arc::new(operation.op_type.clone());
+        let shared_key = Arc::new(operation.kv.key.clone());
+        let shared_encoded_shards = Arc::new(encoded_shard.clone());
 
         for (index, follower_addr) in follower_list.iter().enumerate() {
-            if follower_addr == self.address.to_string().as_str() {
+            if follower_addr == &leader_addr {
                 continue;
             }
 
             let follower_addr = follower_addr.clone();
             let source = Arc::clone(&source);
-            let request_id = self.request_id.clone();
-
-            let sent_operation = Operation {
-                op_type: operation.op_type.clone(),
-                kv: BinKV {
-                    key: operation.kv.key.clone(),
-                    value: encoded_shard[index].clone(),
-                },
-            };
+            let request_id = Arc::clone(&request_id);
+            let op_type = Arc::clone(&shared_op_type);
+            let key = Arc::clone(&shared_key);
+            let encoded_shard_arc = Arc::clone(&shared_encoded_shards);
 
             tasks.spawn(async move {
+                let sent_shard = encoded_shard_arc[index].clone();
+                let sent_operation = Operation {
+                    op_type: (*op_type).clone(),
+                    kv: BinKV {
+                        key: (*key).clone(),
+                        value: sent_shard,
+                    },
+                };
+
                 // Send the request to the follower
                 let stream = send_message(
                     PaxosMessage::LeaderLearn {
-                        request_id,
+                        request_id: (*request_id).clone(),
                         operation: sent_operation,
-                        source: source.to_string(),
+                        source: (*source).clone(),
                     },
                     follower_addr.as_str(),
                 )
@@ -220,6 +233,8 @@ impl Node {
                             // );
 
                             return Some(1);
+                        } else {
+                            return Some(0);
                         }
                     }
                     Ok(Err(e)) => {
@@ -227,15 +242,16 @@ impl Node {
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
                         );
+                        return Some(0);
                     }
                     Err(_) => {
                         println!(
                             "Timeout waiting for acknowledgment from follower at {}",
                             follower_addr
                         );
+                        return Some(0);
                     }
                 }
-                return Some(0);
             });
         }
 
@@ -243,6 +259,11 @@ impl Node {
             match response {
                 Ok(Some(value)) => {
                     acks += value;
+                    if acks >= majority {
+                        // TODO: Reconsider. This don't seem to be a good idea? What if some haven't received the packages?
+                        tasks.abort_all();
+                        break;
+                    }
                 }
                 _ => {} // Handle errors or None responses if needed
             }

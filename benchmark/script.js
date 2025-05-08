@@ -4,7 +4,7 @@ import { b64encode } from 'k6/encoding';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:2379/v3';
 const VUS = __ENV.VUS || 1;
-const DURATION = __ENV.DURATION || '10s';
+const DURATION = __ENV.DURATION || '1s';
 
 export const options = {
     vus: VUS,
@@ -42,5 +42,5 @@ export default function () {
     // console.log('DELETE Response Status:', delRes.status);
     // console.log('DELETE Response Body:', delRes.body);
 
-    sleep(100);
+    sleep(1);
 }
