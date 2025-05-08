@@ -84,7 +84,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_accept(&self, follower_list: &Vec<String>) -> usize {
+    pub async fn broadcast_learn(&self, follower_list: &Vec<String>) -> usize {
         if follower_list.is_empty() {
             println!("No followers registered. Cannot proceed.");
             return 0;
@@ -106,7 +106,7 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderAccepted {
+                    PaxosMessage::LeaderLearn {
                         request_id: request_id,
                         source: source.to_string(),
                     },
@@ -161,7 +161,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_learn_ec(
+    pub async fn broadcast_accept_ec(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -209,7 +209,7 @@ impl Node {
 
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderLearn {
+                    PaxosMessage::LeaderAccepted {
                         request_id: (*request_id).clone(),
                         operation: sent_operation,
                         source: (*source).clone(),
@@ -273,7 +273,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_learn_replication(
+    pub async fn broadcast_accept_replication(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -300,7 +300,7 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderLearn {
+                    PaxosMessage::LeaderAccepted {
                         request_id,
                         operation,
                         source: source.to_string(),
