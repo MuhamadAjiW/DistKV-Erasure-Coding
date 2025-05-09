@@ -5,35 +5,41 @@ use super::_operation::Operation;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PaxosMessage {
     // Paxos
-    LeaderRequest {
+    AcceptRequest {
+        epoch: u64,
         request_id: u64,
         source: String,
     },
-    LeaderAccepted {
-        request_id: u64,
+    LearnRequest {
+        epoch: u64,
+        commit_id: u64,
         operation: Operation,
         source: String,
     },
-    LeaderLearn {
-        request_id: u64,
-        source: String,
-    },
-    FollowerAck {
+    Ack {
+        epoch: u64,
         request_id: u64,
         source: String,
     },
 
     // Leader Election
-    Heartbeat {
+    ElectionRequest {
+        epoch: u64,
         request_id: u64,
         source: String,
     },
     LeaderVote {
-        request_id: u64,
+        epoch: u64,
         source: String,
     },
     LeaderDeclaration {
-        request_id: u64,
+        epoch: u64,
+        commit_id: u64,
+        source: String,
+    },
+    Heartbeat {
+        epoch: u64,
+        commit_id: u64,
         source: String,
     },
 

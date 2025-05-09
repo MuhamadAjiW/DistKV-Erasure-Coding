@@ -33,6 +33,7 @@ pub struct Node {
     pub cluster_list: Arc<Mutex<Vec<String>>>,
     pub cluster_index: usize,
     pub state: PaxosState,
+    pub epoch: u64,
     pub request_id: u64,
     pub commit_id: u64,
     pub last_heartbeat: Arc<RwLock<Instant>>,
@@ -118,6 +119,7 @@ impl Node {
             cluster_list: Arc::new(Mutex::new(cluster_list)),
             cluster_index,
             state: PaxosState::Follower,
+            epoch: 0,
             request_id: 0,
             commit_id: 0,
             last_heartbeat: Arc::new(RwLock::new(Instant::now())),
@@ -258,30 +260,39 @@ impl Node {
 
                 match message {
                     // Leader election
-                    PaxosMessage::Heartbeat { request_id, source } => {
+                    PaxosMessage::Heartbeat {
+                        epoch,
+                        commit_id,
+                        source,
+                    } => {
                         println!("[REQUEST] Received Heartbeat from {}", source);
                         {
                             let mut node = node_arc.lock().await;
-                            node.handle_heartbeat(&source, stream, request_id).await;
+                            node.handle_heartbeat(&source, stream, epoch, commit_id)
+                                .await;
 
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
                         }
                     }
-                    PaxosMessage::LeaderVote { request_id, source } => {
+                    PaxosMessage::LeaderVote { epoch, source } => {
                         println!("[REQUEST] Received LeaderVote from {}", source);
                         {
                             let mut node = node_arc.lock().await;
-                            node.handle_leader_vote(&source, stream, request_id).await;
+                            node.handle_leader_vote(&source, stream, epoch).await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
                         }
                     }
-                    PaxosMessage::LeaderDeclaration { request_id, source } => {
+                    PaxosMessage::LeaderDeclaration {
+                        epoch,
+                        commit_id,
+                        source,
+                    } => {
                         println!("[REQUEST] Received LeaderDeclaration from {}", source);
                         {
                             let mut node = node_arc.lock().await;
-                            node.handle_leader_declaration(&source, stream, request_id)
+                            node.handle_leader_declaration(&source, stream, epoch, commit_id)
                                 .await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
@@ -289,34 +300,27 @@ impl Node {
                     }
 
                     // Transactional
-                    PaxosMessage::LeaderRequest { request_id, source } => {
+                    PaxosMessage::ElectionRequest {
+                        epoch,
+                        request_id,
+                        source,
+                    } => {
                         println!(
                             "[REQUEST] Received LeaderRequest from {}, request id is {}",
                             source, request_id
                         );
                         {
                             let mut node = node_arc.lock().await;
-                            node.handle_leader_request(&source, stream, request_id)
+                            node.handle_leader_request(&source, stream, epoch, request_id)
                                 .await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
                         }
                     }
 
-                    PaxosMessage::LeaderLearn { request_id, source } => {
-                        println!("[REQUEST] Received LeaderAccepted from {}", source);
-                        {
-                            let mut node = node_arc.lock().await;
-                            _ = node
-                                .handle_leader_accepted(&source, stream, request_id)
-                                .await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
-                        }
-                    }
-
-                    PaxosMessage::LeaderAccepted {
-                        request_id,
+                    PaxosMessage::LearnRequest {
+                        epoch,
+                        commit_id,
                         operation,
                         source,
                     } => {
@@ -324,14 +328,35 @@ impl Node {
                         {
                             let mut node = node_arc.lock().await;
                             _ = node
-                                .handle_leader_learn(&source, stream, request_id, &operation)
+                                .handle_leader_learn(&source, stream, epoch, commit_id, &operation)
+                                .await;
+
+                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
+                            *last_heartbeat_mut = Instant::now();
+                        }
+                    }
+
+                    PaxosMessage::AcceptRequest {
+                        epoch,
+                        request_id,
+                        source,
+                    } => {
+                        println!("[REQUEST] Received LeaderAccepted from {}", source);
+                        {
+                            let mut node = node_arc.lock().await;
+                            _ = node
+                                .handle_accept_request(&source, stream, epoch, request_id)
                                 .await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
                         }
                     }
 
-                    PaxosMessage::FollowerAck { request_id, source } => {
+                    PaxosMessage::Ack {
+                        epoch: _,
+                        request_id,
+                        source,
+                    } => {
                         println!("[REQUEST] Received FollowerAck from {}", source);
                         {
                             let node = node_arc.lock().await;

@@ -102,7 +102,7 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderLearn {
+                    PaxosMessage::LearnRequest {
                         request_id: request_id,
                         source: source.to_string(),
                     },
@@ -118,7 +118,7 @@ impl Node {
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::FollowerAck { .. } = ack {
+                        if let PaxosMessage::Ack { .. } = ack {
                             // println!(
                             //     "Leader received acknowledgment from follower at {}",
                             //     follower_addr
@@ -205,7 +205,7 @@ impl Node {
 
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderAccepted {
+                    PaxosMessage::AcceptRequest {
                         request_id: (*request_id).clone(),
                         operation: sent_operation,
                         source: (*source).clone(),
@@ -222,7 +222,7 @@ impl Node {
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::FollowerAck { .. } = ack {
+                        if let PaxosMessage::Ack { .. } = ack {
                             // println!(
                             //     "Leader received acknowledgment from follower at {}",
                             //     follower_addr
@@ -296,7 +296,7 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LeaderAccepted {
+                    PaxosMessage::AcceptRequest {
                         request_id,
                         operation,
                         source: source.to_string(),
@@ -313,7 +313,7 @@ impl Node {
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::FollowerAck { .. } = ack {
+                        if let PaxosMessage::Ack { .. } = ack {
                             // println!(
                             //     "Leader received acknowledgment from follower at {}",
                             //     follower_addr

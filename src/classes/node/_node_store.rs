@@ -118,4 +118,19 @@ impl Node {
         println!("Request succeeded: Accept broadcast is accepted by majority");
         return true;
     }
+
+    pub async fn synchronize_log(&mut self, new_commit_id: u64) {
+        let old_commit_id = self.commit_id;
+        self.commit_id = std::cmp::max(self.commit_id, new_commit_id);
+
+        if self.commit_id > old_commit_id {
+            println!(
+                "[ELECTION] Node updated commit ID from {} to {}",
+                old_commit_id, self.commit_id
+            );
+        }
+
+        // _TODO: Synchronize the transaction log with the new commit ID
+        // self.store.synchronize(self.commit_id).await;
+    }
 }

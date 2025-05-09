@@ -7,6 +7,7 @@ pub struct Address {
     pub ip: String,
     pub port: u16,
 }
+
 impl Address {
     pub fn new(ip: &str, port: u16) -> Self {
         return Address {
@@ -22,6 +23,15 @@ impl Address {
             Some(Address { ip, port })
         } else {
             None
+        }
+    }
+}
+
+impl Default for Address {
+    fn default() -> Self {
+        Address {
+            ip: String::new(),
+            port: 0,
         }
     }
 }

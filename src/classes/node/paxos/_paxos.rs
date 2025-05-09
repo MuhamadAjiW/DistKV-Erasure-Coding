@@ -1,9 +1,16 @@
-use std::{fmt, io, u64};
+use std::{fmt, io, sync::atomic::Ordering, u64};
 
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, time::Instant};
 
 use crate::{
-    base_libs::{_operation::Operation, network::_address::Address},
+    base_libs::{
+        _operation::Operation,
+        _paxos_types::PaxosMessage,
+        network::{
+            _address::Address,
+            _messages::{reply_message, send_message},
+        },
+    },
     classes::node::_node::Node,
 };
 
@@ -29,55 +36,90 @@ impl Node {
     pub async fn handle_leader_request(
         &mut self,
         source: &String,
-        stream: TcpStream,
+        _stream: TcpStream,
+        epoch: u64,
         request_id: u64,
     ) {
-        match self.state {
-            PaxosState::Follower => {
-                self.follower_handle_leader_request(source, stream, request_id)
-                    .await
-            }
-            PaxosState::Leader | PaxosState::Candidate => {
-                if request_id > self.request_id {
-                    println!(
-                        "[ELECTION] {:?} Node received a leader request with a higher request id",
-                        self.state
-                    );
-                    self.request_id = request_id;
-                    self.leader_address = Address::from_string(&source);
-                    self.state = PaxosState::Follower;
-                    println!("[ELECTION] leader is now {:?}", self.leader_address);
+        if epoch < self.epoch {
+            println!(
+                "[ELECTION] Node received a leader request with a lower epoch: {}",
+                epoch
+            );
+            return;
+        }
 
-                    self.follower_handle_leader_request(source, stream, request_id)
-                        .await
-                } else {
-                    println!(
-                        "[ELECTION] {:?} Node received a leader request with a lower request id, reasserting leadership",
-                        self.state
-                    );
-                    self.declare_leader().await;
-                }
+        if epoch > self.epoch {
+            println!(
+                "[ELECTION] Node received a leader request with a higher epoch: {}",
+                epoch
+            );
+            self.epoch = epoch;
+
+            if self.state == PaxosState::Leader || self.state == PaxosState::Candidate {
+                self.state = PaxosState::Follower;
+                self.vote_count.store(0, Ordering::SeqCst);
+                self.leader_address = None;
             }
         }
-    }
-    pub async fn handle_leader_accepted(
-        &mut self,
-        src_addr: &String,
-        stream: TcpStream,
-        request_id: u64,
-    ) -> Result<(), io::Error> {
+
         match self.state {
             PaxosState::Follower => {
-                self.follower_handle_leader_accepted(src_addr, stream, request_id)
-                    .await?
+                if request_id > self.request_id {
+                    self.request_id = request_id
+                }
+
+                let _ = send_message(
+                    PaxosMessage::LeaderVote {
+                        epoch: self.epoch,
+                        source: self.address.to_string(),
+                    },
+                    &source,
+                )
+                .await;
             }
-            _ => {
+            PaxosState::Leader | PaxosState::Candidate => {
                 println!(
-                    "[ERROR] Node received LeaderAccepted message in state {:?}",
+                    "[ELECTION] {:?} Node received a leader request with the same request id",
                     self.state
                 );
             }
         }
+    }
+    pub async fn handle_accept_request(
+        &mut self,
+        src_addr: &String,
+        stream: TcpStream,
+        epoch: u64,
+        request_id: u64,
+    ) -> Result<(), io::Error> {
+        if self.state != PaxosState::Follower {
+            println!(
+                "[ERROR] Node received LeaderAccepted message in state {:?}",
+                self.state
+            );
+            return Ok(());
+        }
+        let leader_addr = match &self.leader_address {
+            Some(addr) => addr.to_string(),
+            None => {
+                println!("[ERROR] Leader address is not set");
+                return Ok(());
+            }
+        };
+        let leader_addr = &leader_addr as &str;
+        if src_addr != leader_addr {
+            println!("[ERROR] Follower received request message from not a leader");
+            return Ok(());
+        }
+
+        println!("Follower received accept message from leader");
+        let ack = PaxosMessage::Ack {
+            request_id,
+            epoch,
+            source: self.address.to_string(),
+        };
+        _ = reply_message(ack, stream).await;
+        println!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())
     }
@@ -86,21 +128,49 @@ impl Node {
         &mut self,
         src_addr: &String,
         stream: TcpStream,
-        request_id: u64,
+        epoch: u64,
+        commit_id: u64,
         operation: &Operation,
     ) -> Result<(), io::Error> {
-        match self.state {
-            PaxosState::Follower => {
-                self.follower_handle_leader_learn(src_addr, stream, request_id, operation)
-                    .await?
-            }
-            _ => {
-                println!(
-                    "[ERROR] Node received LeaderLearn message in state {:?}",
-                    self.state
-                );
-            }
+        if self.state != PaxosState::Follower {
+            println!(
+                "[ERROR] Node received LeaderLearn message in state {:?}",
+                self.state
+            );
+            return Ok(());
         }
+
+        let leader_addr = match &self.leader_address {
+            Some(addr) => addr.to_string(),
+            None => {
+                println!("[ERROR] Leader address is not set");
+                return Ok(());
+            }
+        };
+        let leader_addr = &leader_addr as &str;
+
+        if src_addr != leader_addr {
+            println!("[ERROR] Follower received request message from not a leader");
+            return Ok(());
+        }
+
+        // _NOTE: Check log synchronization safety, this could block the whole operation
+        self.synchronize_log(commit_id - 1);
+        self.store.transaction_log.append(operation).await;
+        self.store.persistent.process_request(operation);
+
+        if !self.store.memory.get(&operation.kv.key).is_none() {
+            self.store.memory.remove(&operation.kv.key);
+        }
+
+        println!("Follower received learn message from leader",);
+        let ack = PaxosMessage::Ack {
+            epoch,
+            request_id: commit_id,
+            source: self.address.to_string(),
+        };
+        _ = reply_message(ack, stream).await;
+        println!("Follower acknowledged commit ID: {}", commit_id);
 
         Ok(())
     }
@@ -121,23 +191,27 @@ impl Node {
         }
     }
 
-    pub async fn handle_leader_vote(
-        &mut self,
-        src_addr: &String,
-        stream: TcpStream,
-        request_id: u64,
-    ) {
-        match self.state {
-            PaxosState::Candidate => {
-                self.candidate_handle_leader_vote(src_addr, stream, request_id)
-                    .await;
-            }
-            _ => {
-                println!(
-                    "[ERROR] Node received LeaderVote message in state {:?}",
-                    self.state
-                );
-            }
+    pub async fn handle_leader_vote(&mut self, src_addr: &String, _stream: TcpStream, epoch: u64) {
+        if self.state != PaxosState::Candidate {
+            println!(
+                "[ERROR] Node received LeaderVote message in state {:?}",
+                self.state
+            );
+            return;
+        }
+
+        self.vote_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        println!(
+            "[ELECTION] Received vote from {} for epoch: {}",
+            src_addr, epoch
+        );
+
+        let quorum = self.cluster_list.lock().await.len() / 2;
+
+        if self.vote_count.load(std::sync::atomic::Ordering::SeqCst) > quorum {
+            println!("[ELECTION] Received quorum votes, declaring leader");
+            self.declare_leader().await;
         }
     }
 
@@ -145,62 +219,67 @@ impl Node {
         &mut self,
         src_addr: &String,
         _stream: TcpStream,
-        request_id: u64,
+        epoch: u64,
+        commit_id: u64,
     ) {
-        match self.state {
-            _ => {
-                if self.request_id <= request_id {
-                    self.request_id = request_id;
-                    self.leader_address = Address::from_string(&src_addr);
-                    self.state = PaxosState::Follower;
-                    println!("[ELECTION] leader is now {:?}", self.leader_address);
-                }
-            }
+        if epoch < self.epoch {
+            println!(
+                "[ELECTION] Node received a leader declaration with a lower epoch: {}",
+                epoch
+            );
+            return;
         }
+
+        if epoch > self.epoch {
+            println!(
+                "[ELECTION] Node received a leader declaration with a higher epoch: {}",
+                epoch
+            );
+            self.epoch = epoch;
+            self.vote_count.store(0, Ordering::SeqCst);
+        }
+
+        self.leader_address = Address::from_string(&src_addr);
+        self.state = PaxosState::Follower;
+        println!("[ELECTION] leader is now {:?}", self.leader_address);
+
+        self.synchronize_log(commit_id);
     }
 
     pub async fn handle_heartbeat(
         &mut self,
         src_addr: &String,
-        stream: TcpStream,
-        request_id: u64,
+        _stream: TcpStream,
+        epoch: u64,
+        commit_id: u64,
     ) {
-        match self.state {
-            PaxosState::Leader => {
-                if self.request_id <= request_id {
-                    println!(
-                        "[ELECTION] {:?} Node received a heartbeat with a higher request id",
-                        self.state
-                    );
-                    self.handle_leader_declaration(src_addr, stream, request_id)
-                        .await;
-                } else {
-                    println!(
-                        "[ELECTION] {:?} Node received a heartbeat with a lower request id, reasserting leadership",
-                        self.state
-                    );
-                    self.declare_leader().await;
-                }
-            }
-            _ => {
-                if self.request_id <= request_id {
-                    let leader_addr = match &self.leader_address {
-                        Some(addr) => addr.to_string(),
-                        None => {
-                            println!("[ELECTION] Received heartbeat from an elected leader");
-                            self.handle_leader_declaration(src_addr, stream, request_id)
-                                .await;
-                            return;
-                        }
-                    };
-                    let leader_addr = &leader_addr as &str;
-                    if src_addr != leader_addr {
-                        println!("[ELECTION] Received heartbeat from a different leader");
-                        self.handle_leader_declaration(src_addr, stream, request_id)
-                            .await;
-                    }
-                }
-            }
+        if epoch < self.epoch {
+            println!(
+                "[HEARTBEAT] Node received a heartbeat with a lower epoch: {}",
+                epoch
+            );
+            return;
         }
+
+        if epoch > self.epoch {
+            println!(
+                "[HEARTBEAT] Node received a heartbeat with a higher epoch: {}",
+                epoch
+            );
+            self.epoch = epoch;
+            self.vote_count.store(0, Ordering::SeqCst);
+        }
+
+        self.leader_address = Address::from_string(&src_addr);
+        self.state = PaxosState::Follower;
+
+        {
+            let mut last_heartbeat_mut = self.last_heartbeat.write().await;
+            *last_heartbeat_mut = Instant::now();
+        }
+
+        self.synchronize_log(commit_id);
+
+        // _TODO: Send a heartbeat acknowledgment back to the leader
     }
 }
