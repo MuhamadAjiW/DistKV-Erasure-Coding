@@ -38,6 +38,7 @@ impl Node {
 
         let node = node_data.lock().await;
         node.print_info().await;
+
         HttpResponse::Ok().body("HTTP server running just fine")
     }
 

@@ -145,6 +145,13 @@ impl Node {
         }
         println!("Cluster list: {:?}", &self.cluster_list.lock().await);
         println!("Cluster index: {}", &self.cluster_index);
+        println!("Request ID: {}", &self.request_id);
+        println!("Commit ID: {}", &self.commit_id);
+        println!("Last heartbeat: {:?}", &self.last_heartbeat.read().await);
+        println!(
+            "Timeout duration: {:?}",
+            &self.timeout_duration.read().await
+        );
 
         if let Some(_ec) = &self.ec {
             println!("\nErasure coding configuration:");
