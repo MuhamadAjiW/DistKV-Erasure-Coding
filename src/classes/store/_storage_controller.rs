@@ -32,7 +32,7 @@ impl StorageController {
         key: &String,
         node: &Node,
     ) -> Result<Option<String>, reed_solomon_erasure::Error> {
-        let mut result: String = String::new();
+        let result: String;
         let ec = match &node.ec {
             Some(ec) => ec,
             None => {
@@ -80,6 +80,7 @@ impl StorageController {
             None => {
                 // _TODO: Handle partially missing shard
                 println!("No value found");
+                return Ok(None);
             }
         }
         self.memory.set(key, &result);
