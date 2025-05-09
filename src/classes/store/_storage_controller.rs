@@ -8,18 +8,23 @@ use crate::{
     classes::node::{_node::Node, paxos::_paxos::PaxosState},
 };
 
-use super::{_memory_store::MemoryStore, _persistent_store::PersistentStore};
+use super::{
+    _memory_store::MemoryStore, _persistent_store::PersistentStore,
+    _transaction_log::TransactionLog,
+};
 
 pub struct StorageController {
     pub persistent: PersistentStore,
     pub memory: MemoryStore,
+    pub transaction_log: TransactionLog,
 }
 
 impl StorageController {
-    pub fn new(db_path: &str, memcached_url: &str) -> Self {
+    pub fn new(db_path: &str, memcached_url: &str, tlog_path: &str) -> Self {
         StorageController {
             persistent: PersistentStore::new(db_path),
             memory: MemoryStore::new(memcached_url),
+            transaction_log: TransactionLog::new(tlog_path),
         }
     }
 

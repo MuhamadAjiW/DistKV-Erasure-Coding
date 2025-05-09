@@ -21,6 +21,7 @@ pub struct NodeConfig {
     pub ip: String,
     pub port: u16,
     pub http_port: u16,
+    pub transaction_log: String,
     pub memcached: MemcachedConfig,
     pub rocks_db: RocksDbConfig,
 }

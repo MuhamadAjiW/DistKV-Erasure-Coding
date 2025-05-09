@@ -70,6 +70,7 @@ impl Node {
                 config.storage.parity_count,
                 config.storage.erasure_coding,
                 config.nodes[index].rocks_db.path.as_str(),
+                config.nodes[index].transaction_log.as_str(),
             )
             .await;
         }
@@ -87,6 +88,7 @@ impl Node {
         parity_count: usize,
         ec_active: bool,
         db_path: &str,
+        transaction_log_path: &str,
     ) -> Self {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
         let running = false;
@@ -101,7 +103,7 @@ impl Node {
             "memcache://{}:{}",
             memcached_address.ip, memcached_address.port
         );
-        let store = StorageController::new(db_path, &memcached_url);
+        let store = StorageController::new(db_path, &memcached_url, transaction_log_path);
 
         let ec = if ec_active {
             Some(Arc::new(ECService::new(shard_count, parity_count)))
