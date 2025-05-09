@@ -12,7 +12,11 @@ use super::_node::Node;
 
 impl Node {
     #[instrument(skip_all)]
-    pub async fn process_request(&mut self, request: &Operation) -> Option<String> {
+    pub async fn process_request(
+        &mut self,
+        request: &Operation,
+        request_id: u64,
+    ) -> Option<String> {
         let mut response: Option<String> = None;
 
         match request.op_type {
@@ -37,7 +41,8 @@ impl Node {
                     response = Some("FORWARDED".to_string());
                 }
                 PaxosState::Leader => {
-                    if self.accept_value(&request).await {
+                    // TODO: Separate accept and learn
+                    if self.learn_value(&request, request_id).await {
                         response = Some("OK".to_string());
                     } else {
                         response = Some("FAILED".to_string());
@@ -53,7 +58,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn accept_value(&self, operation: &Operation) -> bool {
+    pub async fn learn_value(&mut self, operation: &Operation, commit_id: u64) -> bool {
         let follower_list: Vec<String> = {
             let followers_guard = self.cluster_list.lock().await;
             followers_guard.iter().cloned().collect()
@@ -82,12 +87,12 @@ impl Node {
             });
 
             acks = self
-                .broadcast_accept_ec(&follower_list, operation, &encoded_shard)
+                .broadcast_learn_ec(&follower_list, operation, &encoded_shard, commit_id)
                 .await
         } else {
             self.store.persistent.process_request(operation);
             acks = self
-                .broadcast_accept_replication(&follower_list, operation)
+                .broadcast_learn_replication(&follower_list, operation, commit_id)
                 .await
         }
 
@@ -96,19 +101,23 @@ impl Node {
             return false;
         }
 
+        // _NOTE: Check log synchronization safety, this could block the whole operation
+        self.synchronize_log(commit_id - 1).await;
+        self.store.transaction_log.append(operation).await;
+
         println!("Request succeeded: Accept broadcast is accepted by majority");
         return true;
     }
 
     #[instrument(skip_all)]
-    pub async fn learn_value(&self, node: &Node) -> bool {
+    pub async fn accept_value(&self, node: &Node) -> bool {
         let follower_list: Vec<String> = {
             let followers_guard = node.cluster_list.lock().await;
             followers_guard.iter().cloned().collect()
         };
 
         let majority = follower_list.len() / 2 + 1;
-        let acks = node.broadcast_learn(&follower_list).await;
+        let acks = node.broadcast_accept(&follower_list).await;
 
         if acks < majority {
             println!("Request failed: Prepare broadcast is not accepted by majority");

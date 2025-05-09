@@ -50,7 +50,10 @@ impl Node {
                 }
 
                 println!("[REQUEST] Received request: {:?}", operation.op_type);
-                result = self.process_request(&operation).await.unwrap_or_default();
+                result = self
+                    .process_request(&operation, self.request_id)
+                    .await
+                    .unwrap_or_default();
             }
         }
 
@@ -80,7 +83,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_learn(&self, follower_list: &Vec<String>) -> usize {
+    pub async fn broadcast_accept(&self, follower_list: &Vec<String>) -> usize {
         if follower_list.is_empty() {
             println!("No followers registered. Cannot proceed.");
             return 0;
@@ -89,6 +92,7 @@ impl Node {
         let mut acks = 1;
         let mut tasks = JoinSet::new();
         let source = Arc::new(self.address.clone());
+        let epoch = Arc::new(self.epoch.clone());
 
         for follower_addr in follower_list.iter() {
             if follower_addr == self.address.to_string().as_str() {
@@ -98,11 +102,13 @@ impl Node {
             let source = Arc::clone(&source);
             let follower_addr = follower_addr.clone();
             let request_id = self.request_id.clone();
+            let epoch = Arc::clone(&epoch);
 
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LearnRequest {
+                    PaxosMessage::AcceptRequest {
+                        epoch: (*epoch).clone(),
                         request_id: request_id,
                         source: source.to_string(),
                     },
@@ -157,11 +163,12 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_accept_ec(
+    pub async fn broadcast_learn_ec(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
         encoded_shard: &Vec<Vec<u8>>,
+        commit_id: u64,
     ) -> usize {
         if follower_list.is_empty() {
             println!("No followers registered. Cannot proceed.");
@@ -176,7 +183,8 @@ impl Node {
         // Share as much as possible and clone as little as possible
         let source = Arc::new(self.address.clone().to_string());
         let leader_addr = self.address.to_string();
-        let request_id = Arc::new(self.request_id.clone());
+        let commit_id = Arc::new(commit_id);
+        let epoch = Arc::new(self.epoch.clone());
         let shared_op_type = Arc::new(operation.op_type.clone());
         let shared_key = Arc::new(operation.kv.key.clone());
         let shared_encoded_shards = Arc::new(encoded_shard.clone());
@@ -188,7 +196,8 @@ impl Node {
 
             let follower_addr = follower_addr.clone();
             let source = Arc::clone(&source);
-            let request_id = Arc::clone(&request_id);
+            let commit_id = Arc::clone(&commit_id);
+            let epoch = Arc::clone(&epoch);
             let op_type = Arc::clone(&shared_op_type);
             let key = Arc::clone(&shared_key);
             let encoded_shard_arc = Arc::clone(&shared_encoded_shards);
@@ -205,8 +214,9 @@ impl Node {
 
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::AcceptRequest {
-                        request_id: (*request_id).clone(),
+                    PaxosMessage::LearnRequest {
+                        epoch: (*epoch).clone(),
+                        commit_id: (*commit_id).clone(),
                         operation: sent_operation,
                         source: (*source).clone(),
                     },
@@ -269,36 +279,46 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_accept_replication(
+    pub async fn broadcast_learn_replication(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
+        commit_id: u64,
     ) -> usize {
         if follower_list.is_empty() {
             println!("No followers registered. Cannot proceed.");
             return 0;
         }
 
+        let majority = follower_list.len() / 2 + 1;
         let mut acks = 1;
+
         let mut tasks = JoinSet::new();
-        let source = Arc::new(self.address.clone());
+
+        let source = Arc::new(self.address.clone().to_string());
+        let leader_addr = self.address.to_string();
+        let commit_id = Arc::new(commit_id);
+        let operation = Arc::new(operation.clone());
 
         for follower_addr in follower_list {
-            if follower_addr == self.address.to_string().as_str() {
+            if follower_addr == &leader_addr {
                 continue;
             }
 
             let follower_addr = follower_addr.clone();
-            let request_id = self.request_id.clone();
             let source = Arc::clone(&source);
-            let operation = operation.clone();
+            let commit_id = Arc::clone(&commit_id);
+            let epoch = Arc::new(self.epoch.clone());
+            let source = Arc::clone(&source);
+            let operation = Arc::clone(&operation);
 
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::AcceptRequest {
-                        request_id,
-                        operation,
+                    PaxosMessage::LearnRequest {
+                        epoch: (*epoch).clone(),
+                        commit_id: (*commit_id).clone(),
+                        operation: (*operation).clone(),
                         source: source.to_string(),
                     },
                     follower_addr.as_str(),
@@ -342,6 +362,11 @@ impl Node {
             match response {
                 Ok(Some(value)) => {
                     acks += value;
+                    if acks >= majority {
+                        // TODO: Reconsider. This don't seem to be a good idea? What if some haven't received the packages?
+                        tasks.abort_all();
+                        break;
+                    }
                 }
                 _ => {} // Handle errors or None responses if needed
             }

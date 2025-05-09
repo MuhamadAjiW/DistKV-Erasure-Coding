@@ -11,6 +11,10 @@ impl Node {
     pub async fn start_leader_election(&mut self) -> Result<(), io::Error> {
         println!("[ELECTION] Starting leader election");
 
+        self.epoch += 1;
+        self.vote_count
+            .store(1, std::sync::atomic::Ordering::Relaxed);
+
         let leader_request = PaxosMessage::ElectionRequest {
             epoch: self.epoch,
             request_id: self.request_id,

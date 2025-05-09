@@ -49,6 +49,7 @@ impl Node {
     ) -> impl Responder {
         println!("[REQUEST] GET request received");
         let mut node = node_data.lock().await;
+
         let operation = Operation {
             op_type: OperationType::GET,
             kv: BinKV {
@@ -56,8 +57,12 @@ impl Node {
                 value: vec![],
             },
         };
+        let request_id = node.request_id;
 
-        let result = node.process_request(&operation).await.unwrap_or_default();
+        let result = node
+            .process_request(&operation, request_id)
+            .await
+            .unwrap_or_default();
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -86,7 +91,12 @@ impl Node {
                 value: body.value.clone().into_bytes(),
             },
         };
-        let result = node.process_request(&operation).await.unwrap_or_default();
+        let request_id = node.request_id;
+
+        let result = node
+            .process_request(&operation, request_id)
+            .await
+            .unwrap_or_default();
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -108,7 +118,6 @@ impl Node {
         let mut node = node_data.lock().await;
         node.request_id += 1;
 
-        println!("[REQUEST] Creating operation for DELETE request");
         let operation = Operation {
             op_type: OperationType::DELETE,
             kv: BinKV {
@@ -116,17 +125,19 @@ impl Node {
                 value: vec![],
             },
         };
+        let request_id = node.request_id;
 
         println!("[REQUEST] Processing DELETE request");
-        let result = node.process_request(&operation).await.unwrap_or_default();
+        let result = node
+            .process_request(&operation, request_id)
+            .await
+            .unwrap_or_default();
 
-        println!("[REQUEST] DELETE request processed");
         let response = BaseResponse {
             key: body.key.clone(),
             response: result,
         };
 
-        println!("[REQUEST] DELETE request response created");
         let mut last_heartbeat_mut = node.last_heartbeat.write().await;
         *last_heartbeat_mut = Instant::now();
 

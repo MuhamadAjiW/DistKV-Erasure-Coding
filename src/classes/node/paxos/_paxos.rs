@@ -155,7 +155,7 @@ impl Node {
         }
 
         // _NOTE: Check log synchronization safety, this could block the whole operation
-        self.synchronize_log(commit_id - 1);
+        self.synchronize_log(commit_id - 1).await;
         self.store.transaction_log.append(operation).await;
         self.store.persistent.process_request(operation);
 
@@ -243,7 +243,7 @@ impl Node {
         self.state = PaxosState::Follower;
         println!("[ELECTION] leader is now {:?}", self.leader_address);
 
-        self.synchronize_log(commit_id);
+        self.synchronize_log(commit_id).await;
     }
 
     pub async fn handle_heartbeat(
@@ -278,7 +278,7 @@ impl Node {
             *last_heartbeat_mut = Instant::now();
         }
 
-        self.synchronize_log(commit_id);
+        self.synchronize_log(commit_id).await;
 
         // _TODO: Send a heartbeat acknowledgment back to the leader
     }
