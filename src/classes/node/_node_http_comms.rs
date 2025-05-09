@@ -47,7 +47,7 @@ impl Node {
         body: web::Json<GetBody>,
     ) -> impl Responder {
         println!("[REQUEST] GET request received");
-        let node = node_data.lock().await;
+        let mut node = node_data.lock().await;
         let operation = Operation {
             op_type: OperationType::GET,
             kv: BinKV {
@@ -55,11 +55,8 @@ impl Node {
                 value: vec![],
             },
         };
-        let result = node
-            .store
-            .process_request(&operation, &node)
-            .await
-            .unwrap_or_default();
+
+        let result = node.process_request(&operation).await.unwrap_or_default();
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -88,11 +85,7 @@ impl Node {
                 value: body.value.clone().into_bytes(),
             },
         };
-        let result = node
-            .store
-            .process_request(&operation, &node)
-            .await
-            .unwrap_or_default();
+        let result = node.process_request(&operation).await.unwrap_or_default();
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -124,11 +117,7 @@ impl Node {
         };
 
         println!("[REQUEST] Processing DELETE request");
-        let result = node
-            .store
-            .process_request(&operation, &node)
-            .await
-            .unwrap_or_default();
+        let result = node.process_request(&operation).await.unwrap_or_default();
 
         println!("[REQUEST] DELETE request processed");
         let response = BaseResponse {

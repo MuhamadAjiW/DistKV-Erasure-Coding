@@ -51,12 +51,32 @@ impl TransactionLog {
             .expect("Failed to write to transaction log file");
     }
 
-    pub async fn truncate(&mut self) {
+    pub async fn synchronize(&mut self, length: usize) {
         let file = File::create(&self.file_path)
             .await
             .expect("Failed to open transaction log file");
         file.set_len(0)
             .await
             .expect("Failed to truncate transaction log file");
+
+        let mut file = File::options()
+            .append(true)
+            .open(&self.file_path)
+            .await
+            .expect("Failed to open transaction log file");
+
+        for i in 0..length {
+            let operation_str = self.transaction[i].to_string();
+            file.write_all(operation_str.as_bytes())
+                .await
+                .expect("Failed to write to transaction log file");
+        }
+        file.flush()
+            .await
+            .expect("Failed to flush transaction log file");
+        self.transaction.truncate(length);
+        self.transaction
+            .iter()
+            .for_each(|op| println!("Truncated operation: {}", op.to_string()));
     }
 }

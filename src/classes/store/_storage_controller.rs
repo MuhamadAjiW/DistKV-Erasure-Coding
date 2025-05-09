@@ -1,12 +1,6 @@
 use tracing::instrument;
 
-use crate::{
-    base_libs::{
-        _operation::{BinKV, Operation, OperationType},
-        _paxos_types::PaxosMessage,
-    },
-    classes::node::{_node::Node, paxos::_paxos::PaxosState},
-};
+use crate::classes::node::_node::Node;
 
 use super::{
     _memory_store::MemoryStore, _persistent_store::PersistentStore,
@@ -32,48 +26,6 @@ impl StorageController {
         self.transaction_log.initialize().await;
     }
 
-    #[instrument(skip_all)]
-    pub async fn process_request(&self, request: &Operation, node: &Node) -> Option<String> {
-        let mut response: Option<String> = None;
-
-        match request.op_type {
-            OperationType::GET => {
-                response = self.memory.get(&request.kv.key);
-                if response.is_none() {
-                    let recovered = self.get_from_cluster(&request.kv.key, node).await;
-                    response = recovered.unwrap_or_default();
-                }
-            }
-            OperationType::SET | OperationType::DELETE => match node.state {
-                PaxosState::Follower | PaxosState::Candidate => {
-                    println!(
-                        "[FORWARD] Forwarding request to leader: {}",
-                        request.to_string()
-                    );
-                    node.forward_to_leader(PaxosMessage::ClientRequest {
-                        operation: request.clone(),
-                        source: node.address.to_string(),
-                    })
-                    .await;
-                    response = Some("FORWARDED".to_string());
-                }
-                PaxosState::Leader => {
-                    if self.accept_value(&request, node).await {
-                        response = Some("OK".to_string());
-                    } else {
-                        response = Some("FAILED".to_string());
-                    }
-                }
-            },
-            _ => {}
-        }
-
-        response
-    }
-}
-
-// EC logic
-impl StorageController {
     #[instrument(skip_all)]
     pub async fn get_from_cluster(
         &self,
@@ -133,72 +85,5 @@ impl StorageController {
         self.memory.set(key, &result);
 
         Ok(Some(result))
-    }
-
-    #[instrument(skip_all)]
-    pub async fn accept_value(&self, operation: &Operation, node: &Node) -> bool {
-        let follower_list: Vec<String> = {
-            let followers_guard = node.cluster_list.lock().await;
-            followers_guard.iter().cloned().collect()
-        };
-
-        let majority = follower_list.len() / 2 + 1;
-        let acks;
-
-        // _TODO: Delete operation is still broken here
-        self.memory.process_request(&operation);
-        if node.ec_active {
-            let ec = match &node.ec {
-                Some(ec) => ec,
-                None => {
-                    println!("[ERROR] EC service is missing");
-                    return false;
-                }
-            };
-            let encoded_shard = ec.encode(&operation.kv.value);
-            self.persistent.process_request(&Operation {
-                op_type: operation.op_type.clone(),
-                kv: BinKV {
-                    key: operation.kv.key.clone(),
-                    value: encoded_shard[node.cluster_index].clone(),
-                },
-            });
-
-            acks = node
-                .broadcast_accept_ec(&follower_list, operation, &encoded_shard)
-                .await
-        } else {
-            self.persistent.process_request(operation);
-            acks = node
-                .broadcast_accept_replication(&follower_list, operation)
-                .await
-        }
-
-        if acks < majority {
-            println!("Request failed: Accept broadcast is not accepted by majority");
-            return false;
-        }
-
-        println!("Request succeeded: Accept broadcast is accepted by majority");
-        return true;
-    }
-
-    #[instrument(skip_all)]
-    pub async fn learn_value(&self, node: &Node) -> bool {
-        let follower_list: Vec<String> = {
-            let followers_guard = node.cluster_list.lock().await;
-            followers_guard.iter().cloned().collect()
-        };
-
-        let majority = follower_list.len() / 2 + 1;
-        let acks = node.broadcast_learn(&follower_list).await;
-
-        if acks < majority {
-            println!("Request failed: Prepare broadcast is not accepted by majority");
-            return false;
-        }
-
-        println!("Request succeeded: Accept broadcast is accepted by majority");
-        return true;
     }
 }
