@@ -28,6 +28,10 @@ impl StorageController {
         }
     }
 
+    pub async fn initialize(&mut self) {
+        self.transaction_log.initialize().await;
+    }
+
     #[instrument(skip_all)]
     pub async fn process_request(&self, request: &Operation, node: &Node) -> Option<String> {
         let mut response: Option<String> = None;

@@ -98,6 +98,59 @@ impl Operation {
             }
         }
     }
+
+    pub fn from_string(command: &str) -> Self {
+        let command = command.trim();
+        let parts: Vec<&str> = command.split_whitespace().collect();
+
+        if parts.is_empty() {
+            return Operation {
+                op_type: OperationType::BAD,
+                kv: BinKV {
+                    key: "".to_string(),
+                    value: vec![],
+                },
+            };
+        }
+
+        match parts.as_slice() {
+            ["PING"] => Operation {
+                op_type: OperationType::PING,
+                kv: BinKV {
+                    key: "".to_string(),
+                    value: vec![],
+                },
+            },
+            ["GET", key] => Operation {
+                op_type: OperationType::GET,
+                kv: BinKV {
+                    key: key.to_string(),
+                    value: vec![],
+                },
+            },
+            ["SET", key, val] => Operation {
+                op_type: OperationType::SET,
+                kv: BinKV {
+                    key: key.to_string(),
+                    value: val.as_bytes().to_vec(),
+                },
+            },
+            ["DEL", key] => Operation {
+                op_type: OperationType::DELETE,
+                kv: BinKV {
+                    key: key.to_string(),
+                    value: vec![0; 1],
+                },
+            },
+            _ => Operation {
+                op_type: OperationType::BAD,
+                kv: BinKV {
+                    key: "".to_string(),
+                    value: vec![],
+                },
+            },
+        }
+    }
 }
 
 impl fmt::Display for Operation {

@@ -409,9 +409,17 @@ impl Node {
         });
     }
 
+    pub async fn initialize(node_arc: &Arc<Mutex<Node>>) {
+        let mut node = node_arc.lock().await;
+        node.store.initialize().await;
+        node.print_info().await;
+    }
+
     #[instrument(skip_all)]
     pub async fn run(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Running node...");
+
+        Node::initialize(&node_arc).await;
 
         Node::run_timer_task(node_arc.clone());
         Node::run_tcp_loop(node_arc.clone());
