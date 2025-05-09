@@ -34,6 +34,7 @@ pub struct Node {
     pub cluster_index: usize,
     pub state: PaxosState,
     pub request_id: u64,
+    pub commit_id: u64,
     pub last_heartbeat: Arc<RwLock<Instant>>,
     pub timeout_duration: Arc<RwLock<Duration>>,
     pub vote_count: AtomicUsize,
@@ -91,13 +92,6 @@ impl Node {
         transaction_log_path: &str,
     ) -> Self {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
-        let running = false;
-
-        let leader_address = None;
-        let cluster_list = Arc::new(Mutex::new(cluster_list));
-        let cluster_index = cluster_index;
-        let state = PaxosState::Follower;
-        let request_id = 0;
 
         let memcached_url = format!(
             "memcache://{}:{}",
@@ -111,25 +105,24 @@ impl Node {
             None
         };
 
-        let last_heartbeat = Arc::new(RwLock::new(Instant::now()));
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
             5000 + (rand::random::<u64>() % 100) * 50,
         )));
-        let vote_count = AtomicUsize::new(0);
 
         let node = Node {
             address,
             http_address,
             socket,
-            running,
-            leader_address,
-            cluster_list,
+            running: false,
+            leader_address: None,
+            cluster_list: Arc::new(Mutex::new(cluster_list)),
             cluster_index,
-            state,
-            request_id,
-            last_heartbeat,
+            state: PaxosState::Follower,
+            request_id: 0,
+            commit_id: 0,
+            last_heartbeat: Arc::new(RwLock::new(Instant::now())),
             timeout_duration,
-            vote_count,
+            vote_count: AtomicUsize::new(0),
             store,
             ec,
             ec_active,
