@@ -3,19 +3,19 @@ use tracing::instrument;
 use crate::classes::node::_node::Node;
 
 use super::{
-    _memory_store::MemoryStore, _persistent_store::PersistentStore,
-    _transaction_log::TransactionLog,
+    _kvstore_memory::MemoryStore, _kvstore_persistent::PersistentStore,
+    _kvstore_transaction_log::TransactionLog,
 };
 
-pub struct StorageController {
+pub struct StorageModule {
     pub persistent: PersistentStore,
     pub memory: MemoryStore,
     pub transaction_log: TransactionLog,
 }
 
-impl StorageController {
+impl StorageModule {
     pub fn new(db_path: &str, memcached_url: &str, tlog_path: &str) -> Self {
-        StorageController {
+        StorageModule {
             persistent: PersistentStore::new(db_path),
             memory: MemoryStore::new(memcached_url),
             transaction_log: TransactionLog::new(tlog_path),

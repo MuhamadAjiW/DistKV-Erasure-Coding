@@ -1,4 +1,4 @@
 pub mod config;
 pub mod ec;
+pub mod kvstore;
 pub mod node;
-pub mod store;
