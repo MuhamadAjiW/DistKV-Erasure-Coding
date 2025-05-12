@@ -3,13 +3,13 @@ use tracing::instrument;
 
 use crate::base_libs::_operation::{Operation, OperationType};
 
-pub struct PersistentStore {
+pub struct KvPersistent {
     rocks_db: DB,
 }
 
-impl PersistentStore {
+impl KvPersistent {
     pub fn new(db_path: &str) -> Self {
-        return PersistentStore {
+        return KvPersistent {
             rocks_db: DB::open_default(db_path).expect("Failed to open RocksDB"),
         };
     }

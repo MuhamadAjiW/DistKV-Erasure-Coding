@@ -7,14 +7,14 @@ use tokio::{
 
 use crate::base_libs::_operation::Operation;
 
-pub struct TransactionLog {
+pub struct KvTransactionLog {
     pub file_path: String,
     pub transaction: Vec<Operation>,
 }
 
-impl TransactionLog {
+impl KvTransactionLog {
     pub fn new(file_path: &str) -> Self {
-        TransactionLog {
+        KvTransactionLog {
             file_path: file_path.to_string(),
             transaction: [].to_vec(),
         }

@@ -13,7 +13,7 @@ use crate::{
         _paxos_types::PaxosMessage,
         network::{_address::Address, _messages::listen},
     },
-    classes::{config::_config::Config, ec::_ec::ECService, kvstore::_kvstore::StorageModule},
+    classes::{config::_config::Config, ec::_ec::ECService, kvstore::_kvstore::KvStoreModule},
 };
 
 use super::paxos::_paxos_state::PaxosState;
@@ -38,7 +38,7 @@ pub struct Node {
     pub vote_count: AtomicUsize,
 
     // Application attributes
-    pub store: StorageModule,
+    pub store: KvStoreModule,
     pub ec: Option<Arc<ECService>>,
     pub ec_active: bool,
 }
@@ -95,7 +95,7 @@ impl Node {
             "memcache://{}:{}",
             memcached_address.ip, memcached_address.port
         );
-        let store = StorageModule::new(db_path, &memcached_url, transaction_log_path);
+        let store = KvStoreModule::new(db_path, &memcached_url, transaction_log_path);
 
         let ec = if ec_active {
             Some(Arc::new(ECService::new(shard_count, parity_count)))

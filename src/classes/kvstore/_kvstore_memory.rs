@@ -3,13 +3,13 @@ use tracing::instrument;
 
 use crate::base_libs::_operation::{Operation, OperationType};
 
-pub struct MemoryStore {
+pub struct KvMemory {
     memcached: Client,
 }
 
-impl MemoryStore {
+impl KvMemory {
     pub fn new(memcached_url: &str) -> Self {
-        return MemoryStore {
+        return KvMemory {
             memcached: memcache::connect(memcached_url).unwrap(),
         };
     }
