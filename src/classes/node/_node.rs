@@ -39,15 +39,13 @@ pub struct Node {
 
     // Application attributes
     pub store: KvStoreModule,
-    pub ec: Option<Arc<ECService>>,
-    pub ec_active: bool,
 }
 
 impl Node {
     pub async fn from_config(address: Address, config_path: &str) -> Self {
         let config = Config::get_config(config_path).await;
         let index = Config::get_node_index(&config, &address);
-        let node_list: Vec<String> = Config::get_node_addresses(&config)
+        let cluster_list: Vec<String> = Config::get_node_addresses(&config)
             .into_iter()
             .map(|addr| addr.to_string())
             .collect();
@@ -56,20 +54,32 @@ impl Node {
             println!("[INIT] Storage Config: {:?}", config.storage);
             println!("[INIT] Node Config: {:?}", config.nodes[index]);
             println!("[INIT] Index: {}", index);
+
+            let db_path = &config.nodes[index].rocks_db.path;
+            let memcached_url = format!(
+                "memcache://{}:{}",
+                config.nodes[index].memcached.ip, config.nodes[index].memcached.port
+            );
+            let tlog_path = &config.nodes[index].transaction_log;
+
+            let ec = Arc::new(ECService::new(
+                config.storage.erasure_coding,
+                config.storage.shard_count,
+                config.storage.parity_count,
+            ));
+            let store = KvStoreModule::new(
+                db_path.as_str(),
+                memcached_url.as_str(),
+                tlog_path.as_str(),
+                ec,
+            );
+
             return Node::new(
                 address,
                 Address::new(&config.nodes[index].ip, config.nodes[index].http_port),
-                Address::new(
-                    &config.nodes[index].memcached.ip,
-                    config.nodes[index].memcached.port,
-                ),
-                node_list,
+                cluster_list,
                 index,
-                config.storage.shard_count,
-                config.storage.parity_count,
-                config.storage.erasure_coding,
-                config.nodes[index].rocks_db.path.as_str(),
-                config.nodes[index].transaction_log.as_str(),
+                store,
             )
             .await;
         }
@@ -80,28 +90,11 @@ impl Node {
     pub async fn new(
         address: Address,
         http_address: Address,
-        memcached_address: Address,
         cluster_list: Vec<String>,
         cluster_index: usize,
-        shard_count: usize,
-        parity_count: usize,
-        ec_active: bool,
-        db_path: &str,
-        transaction_log_path: &str,
+        store: KvStoreModule,
     ) -> Self {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
-
-        let memcached_url = format!(
-            "memcache://{}:{}",
-            memcached_address.ip, memcached_address.port
-        );
-        let store = KvStoreModule::new(db_path, &memcached_url, transaction_log_path);
-
-        let ec = if ec_active {
-            Some(Arc::new(ECService::new(shard_count, parity_count)))
-        } else {
-            None
-        };
 
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
             5000 + (rand::random::<u64>() % 100) * 50,
@@ -123,8 +116,6 @@ impl Node {
             timeout_duration,
             vote_count: AtomicUsize::new(0),
             store,
-            ec,
-            ec_active,
         };
 
         node
@@ -136,7 +127,7 @@ impl Node {
         println!("[INFO] Node info:");
         println!("Address: {}", &self.address.to_string());
         println!("State: {}", &self.state.to_string());
-        println!("Erasure Coding: {}", &self.ec_active.to_string());
+        println!("Erasure Coding: {}", &self.store.ec.active.to_string());
         if let Some(leader) = &self.leader_address {
             println!("Leader: {}", &leader.to_string());
         } else {
@@ -152,13 +143,9 @@ impl Node {
             &self.timeout_duration.read().await
         );
 
-        if let Some(_ec) = &self.ec {
-            println!("\nErasure coding configuration:");
-            println!("Shard count: {}", &self.ec.as_ref().unwrap().shard_count);
-            println!("Parity count: {}", &self.ec.as_ref().unwrap().parity_count);
-        } else {
-            println!("Erasure coding is not active");
-        }
+        println!("\nErasure coding configuration:");
+        println!("Shard count: {}", &self.store.ec.shard_count);
+        println!("Parity count: {}", &self.store.ec.parity_count);
         println!("-------------------------------------");
     }
 

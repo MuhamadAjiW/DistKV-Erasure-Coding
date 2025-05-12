@@ -66,14 +66,8 @@ impl Node {
 
         // _TODO: Delete operation is still broken here
         self.store.memory.process_request(&operation);
-        if self.ec_active {
-            let ec = match &self.ec {
-                Some(ec) => ec,
-                None => {
-                    println!("[ERROR] EC service is missing");
-                    return false;
-                }
-            };
+        if self.store.ec.active {
+            let ec = self.store.ec.clone();
             let encoded_shard = ec.encode(&operation.kv.value);
             self.store.persistent.process_request(&Operation {
                 op_type: operation.op_type.clone(),

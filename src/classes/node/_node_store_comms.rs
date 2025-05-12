@@ -382,14 +382,7 @@ impl Node {
         own_shard: &Option<Vec<u8>>,
         key: &str,
     ) -> Option<Vec<Option<Vec<u8>>>> {
-        let ec = match &self.ec {
-            Some(ec) => ec,
-            None => {
-                println!("[ERROR] Leader address is not set");
-                return None;
-            }
-        };
-
+        let ec = self.store.ec.clone();
         let recovery_shards = Arc::new(RwLock::new(vec![None; ec.shard_count + ec.parity_count]));
         recovery_shards.write().await[self.cluster_index] = own_shard.clone();
 

@@ -2,16 +2,18 @@ use reed_solomon_erasure::{galois_8::Field, ReedSolomon};
 
 #[derive(Clone)]
 pub struct ECService {
+    pub active: bool,
     pub shard_count: usize,
     pub parity_count: usize,
     reed_solomon: ReedSolomon<Field>,
 }
 
 impl ECService {
-    pub fn new(shard_count: usize, parity_count: usize) -> Self {
+    pub fn new(active: bool, shard_count: usize, parity_count: usize) -> Self {
         let rs = ReedSolomon::new(shard_count, parity_count).unwrap();
 
         ECService {
+            active,
             shard_count,
             parity_count,
             reed_solomon: rs,

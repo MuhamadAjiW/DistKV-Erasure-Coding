@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use tracing::instrument;
 
-use crate::classes::node::_node::Node;
+use crate::classes::{ec::_ec::ECService, node::_node::Node};
 
 use super::{
     _kvstore_memory::KvMemory, _kvstore_persistent::KvPersistent,
@@ -11,14 +13,16 @@ pub struct KvStoreModule {
     pub persistent: KvPersistent,
     pub memory: KvMemory,
     pub transaction_log: KvTransactionLog,
+    pub ec: Arc<ECService>,
 }
 
 impl KvStoreModule {
-    pub fn new(db_path: &str, memcached_url: &str, tlog_path: &str) -> Self {
+    pub fn new(db_path: &str, memcached_url: &str, tlog_path: &str, ec: Arc<ECService>) -> Self {
         KvStoreModule {
             persistent: KvPersistent::new(db_path),
             memory: KvMemory::new(memcached_url),
             transaction_log: KvTransactionLog::new(tlog_path),
+            ec,
         }
     }
 
@@ -33,14 +37,12 @@ impl KvStoreModule {
         node: &Node,
     ) -> Result<Option<String>, reed_solomon_erasure::Error> {
         let result: String;
-        let ec = match &node.ec {
-            Some(ec) => ec,
-            None => {
-                // TODO: replication?
-                println!("[ERROR] EC service is not active");
-                return Ok(None);
-            }
-        };
+        let ec = self.ec.clone();
+        if !ec.active {
+            // _TODO: Inactive EC service
+            println!("[ERROR] EC service is inactive");
+            return Ok(None);
+        }
 
         match self.persistent.get(key) {
             Some(value) => {
@@ -61,9 +63,9 @@ impl KvStoreModule {
                     }
                 };
 
-                for ele in recovery.clone() {
-                    println!("Shards: {:?}", ele.unwrap_or_default());
-                }
+                // for ele in recovery.clone() {
+                //     println!("Shards: {:?}", ele.unwrap_or_default());
+                // }
 
                 if let Err(e) = ec.reconstruct(&mut recovery) {
                     println!("[ERROR] Failed to reconstruct shards: {:?}", e);
