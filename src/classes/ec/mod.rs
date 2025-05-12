@@ -1,1 +1,1 @@
-pub mod _ec_service;
+pub mod _ec;

@@ -14,7 +14,7 @@ use crate::{
         network::{_address::Address, _messages::listen},
     },
     classes::{
-        config::_config::Config, ec::_ec_service::ECService,
+        config::_config::Config, ec::_ec::ECService,
         store::_storage_controller::StorageController,
     },
 };
