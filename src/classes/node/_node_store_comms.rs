@@ -20,7 +20,7 @@ use crate::{
         _paxos_types::PaxosMessage,
         network::_messages::{receive_message, reply_message, reply_string, send_message},
     },
-    classes::node::paxos::_paxos::PaxosState,
+    classes::node::paxos::_paxos_state::PaxosState,
 };
 
 use super::_node::Node;

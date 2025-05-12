@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-use super::paxos::_paxos::PaxosState;
+use super::paxos::_paxos_state::PaxosState;
 
 pub struct Node {
     // Base attributes

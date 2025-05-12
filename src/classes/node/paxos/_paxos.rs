@@ -1,4 +1,4 @@
-use std::{fmt, io, sync::atomic::Ordering, u64};
+use std::{io, sync::atomic::Ordering, u64};
 
 use tokio::{net::TcpStream, time::Instant};
 
@@ -11,25 +11,8 @@ use crate::{
             _messages::{reply_message, send_message},
         },
     },
-    classes::node::_node::Node,
+    classes::node::{_node::Node, paxos::_paxos_state::PaxosState},
 };
-
-// ---PaxosState---
-#[derive(PartialEq, Clone, Copy, Debug)]
-pub enum PaxosState {
-    Follower,
-    Candidate,
-    Leader,
-}
-impl fmt::Display for PaxosState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PaxosState::Follower => write!(f, "Follower"),
-            PaxosState::Candidate => write!(f, "Candidate"),
-            PaxosState::Leader => write!(f, "Leader"),
-        }
-    }
-}
 
 // ---Node Commands---
 impl Node {

@@ -1,14 +1,11 @@
 use tracing::instrument;
 
-use crate::{
-    base_libs::{
-        _operation::{BinKV, Operation, OperationType},
-        _paxos_types::PaxosMessage,
-    },
-    classes::node::paxos::_paxos::PaxosState,
+use crate::base_libs::{
+    _operation::{BinKV, Operation, OperationType},
+    _paxos_types::PaxosMessage,
 };
 
-use super::_node::Node;
+use super::{_node::Node, paxos::_paxos_state::PaxosState};
 
 impl Node {
     #[instrument(skip_all)]

@@ -2,7 +2,7 @@ use tokio::io;
 
 use crate::{
     base_libs::_paxos_types::PaxosMessage,
-    classes::node::{_node::Node, paxos::_paxos::PaxosState},
+    classes::node::{_node::Node, paxos::_paxos_state::PaxosState},
 };
 
 // TODO: Implement
