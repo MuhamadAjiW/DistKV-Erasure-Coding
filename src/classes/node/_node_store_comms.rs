@@ -116,19 +116,11 @@ impl Node {
                 )
                 .await
                 .unwrap();
-                // println!(
-                //     "Leader broadcasted request to follower at {}",
-                //     follower_addr
-                // );
 
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::Ack { .. } = ack {
-                            // println!(
-                            //     "Leader received acknowledgment from follower at {}",
-                            //     follower_addr
-                            // );
                             return Some(1);
                         }
                     }
@@ -224,20 +216,11 @@ impl Node {
                 )
                 .await
                 .unwrap();
-                // println!(
-                //     "Leader broadcasted request to follower at {}",
-                //     follower_addr
-                // );
 
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::Ack { .. } = ack {
-                            // println!(
-                            //     "Leader received acknowledgment from follower at {}",
-                            //     follower_addr
-                            // );
-
                             return Some(1);
                         } else {
                             return Some(0);
@@ -325,19 +308,11 @@ impl Node {
                 )
                 .await
                 .unwrap();
-                // println!(
-                //     "Leader broadcasted request to follower at {}",
-                //     follower_addr
-                // );
 
                 // Wait for acknowledgment with timeout (ex. 2 seconds)
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::Ack { .. } = ack {
-                            // println!(
-                            //     "Leader received acknowledgment from follower at {}",
-                            //     follower_addr
-                            // );
                             return Some(1);
                         }
                     }
@@ -421,7 +396,6 @@ impl Node {
                         return;
                     }
                 };
-                // println!("Broadcasted request to follower at {}", follower_addr);
 
                 match timeout(Duration::from_secs(2), receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
@@ -431,8 +405,6 @@ impl Node {
                             source: _,
                         } = ack
                         {
-                            // println!("Received acknowledgment from {} ({})", follower_addr, index);
-
                             if index < size {
                                 let mut shards = recovery_shards.write().await;
                                 shards[index] = Some(payload);

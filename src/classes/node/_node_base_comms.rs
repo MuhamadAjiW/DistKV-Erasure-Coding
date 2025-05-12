@@ -18,13 +18,11 @@ impl Node {
         };
         let leader_addr = &leader_addr as &str;
 
-        // println!("[MESSAGE] Forwarding request to leader at {}", leader_addr);
         _ = send_message(message, leader_addr).await;
     }
 
     #[instrument(skip_all)]
     pub async fn broadcast_message(&self, message: PaxosMessage) {
-        // println!("[MESSAGE] Broadcasting message: {:?}", message);
         let cluster_list = self.cluster_list.lock().await;
         let addresses: Vec<String> = cluster_list.iter().cloned().collect();
         drop(cluster_list);
@@ -33,7 +31,7 @@ impl Node {
         let message_arc = Arc::new(message);
 
         let mut join_handles = Vec::new();
-        
+
         for addr in addresses {
             if addr == self_addr {
                 continue;
