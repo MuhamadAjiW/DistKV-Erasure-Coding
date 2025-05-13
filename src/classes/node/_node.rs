@@ -19,9 +19,11 @@ use crate::{
 use super::paxos::_paxos_state::PaxosState;
 
 pub struct Node {
+    // HTTP Interface
+    pub http_address: Address,
+
     // Base attributes
     pub address: Address,
-    pub http_address: Address,
     pub socket: Arc<TcpListener>,
     pub running: bool,
 
@@ -101,8 +103,8 @@ impl Node {
         )));
 
         let node = Node {
-            address,
             http_address,
+            address,
             socket,
             running: false,
             leader_address: None,
