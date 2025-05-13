@@ -19,13 +19,15 @@ use crate::{
 use super::paxos::_paxos_state::PaxosState;
 
 pub struct Node {
+    // Base attributes
+    pub running: bool,
+
     // HTTP Interface
     pub http_address: Address,
 
-    // Base attributes
+    // Internode communication
     pub address: Address,
     pub socket: Arc<TcpListener>,
-    pub running: bool,
 
     // Paxos related attributes
     pub leader_address: Option<Address>,
