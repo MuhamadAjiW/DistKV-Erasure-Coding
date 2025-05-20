@@ -112,6 +112,12 @@ run_node() {
     fi
 }
 
+clean() {
+    echo "Cleaning up..."
+    rm -rf ./db/node*
+    echo "Cleanup complete."
+}
+
 run_memcached() {
     local config_path="${1:-./etc/config.json}"
     local memory="${2:-64}"
@@ -195,7 +201,9 @@ bench_baseline() {
     k6 run ./benchmark/script.js
 }
 
-if [ "$1" == "run_node" ]; then
+if [ "$1" == "clean" ]; then
+    clean "${@:2}"
+elif [ "$1" == "run_node" ]; then
     run_node "${@:2}"
 elif [ "$1" == "run_memcached" ]; then
     run_memcached "${@:2}"
@@ -208,5 +216,5 @@ elif [ "$1" == "bench_system" ]; then
 elif [ "$1" == "bench_baseline" ]; then
     bench_baseline
 else
-    echo "Usage: $0 {run_memcached|run_node|run_all|stop_all|bench_system|bench_baseline} [args]"
+    echo "Usage: $0 {run_memcached|run_node|run_all|stop_all|bench_system|bench_baseline|clean} [args]"
 fi
