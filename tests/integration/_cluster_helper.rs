@@ -123,3 +123,15 @@ impl TestCluster {
         }
     }
 }
+
+impl Drop for TestCluster {
+    fn drop(&mut self) {
+        println!("[Test Cleanup] Tearing down cluster...");
+        for node in &mut self.nodes {
+            let _ = node._child.kill();
+            let _ = node._child.wait();
+            println!("[Test Cleanup] Node {} killed.", node.address.to_string());
+        }
+        println!("[Test Cleanup] All temporary node data cleaned up.");
+    }
+}
