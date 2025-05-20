@@ -358,12 +358,16 @@ impl Node {
         key: &str,
     ) -> Option<Vec<Option<Vec<u8>>>> {
         let ec = self.store.ec.clone();
-        let recovery_shards = Arc::new(RwLock::new(vec![None; ec.shard_count + ec.parity_count]));
+        let recovery_shards = Arc::new(RwLock::new(vec![
+            None;
+            ec.data_shard_count
+                + ec.parity_shard_count
+        ]));
         recovery_shards.write().await[self.cluster_index] = own_shard.clone();
 
         let size = follower_list.len();
         let response_count = Arc::new(AtomicUsize::new(1));
-        let required_count = ec.shard_count;
+        let required_count = ec.data_shard_count;
         let notify = Arc::new(Notify::new());
         let source = Arc::new(self.address.clone());
 

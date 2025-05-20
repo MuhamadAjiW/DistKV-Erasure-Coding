@@ -148,8 +148,8 @@ impl Node {
         );
 
         println!("\nErasure coding configuration:");
-        println!("Shard count: {}", &self.store.ec.shard_count);
-        println!("Parity count: {}", &self.store.ec.parity_count);
+        println!("Shard count: {}", &self.store.ec.data_shard_count);
+        println!("Parity count: {}", &self.store.ec.parity_shard_count);
         println!("-------------------------------------");
     }
 

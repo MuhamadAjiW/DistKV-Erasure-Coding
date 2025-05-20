@@ -67,17 +67,16 @@ impl KvStoreModule {
                 //     println!("Shards: {:?}", ele.unwrap_or_default());
                 // }
 
-                if let Err(e) = ec.reconstruct(&mut recovery) {
-                    println!("[ERROR] Failed to reconstruct shards: {:?}", e);
-                    return Ok(None);
-                }
+                let reconstructed_data = match ec.reconstruct(&mut recovery) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        println!("[ERROR] Failed to reconstruct shards: {:?}", e);
+                        return Ok(None);
+                    }
+                };
 
-                result = recovery
-                    .iter()
-                    .take(ec.shard_count)
-                    .filter_map(|opt| opt.as_ref().map(|v| String::from_utf8(v.clone()).unwrap()))
-                    .collect::<Vec<String>>()
-                    .join("");
+                result = String::from_utf8(reconstructed_data)
+                    .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
             }
             None => {
                 // _TODO: Handle partially missing shard
