@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::classes::ec::_ec::ECService;
+    use distkv::classes::ec::_ec::ECService;
 
     fn setup_ec_service(shard_count: usize, parity_count: usize) -> ECService {
         ECService::new(true, shard_count, parity_count)

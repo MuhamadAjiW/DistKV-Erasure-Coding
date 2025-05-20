@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 
 use crate::base_libs::network::_address::Address;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
     pub storage: StorageConfig,
     pub nodes: Vec<NodeConfig>,
