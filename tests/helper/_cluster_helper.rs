@@ -80,7 +80,26 @@ impl TestCluster {
                 i, tcp_addr, http_addr, node_config_temp_path
             );
 
-            let executable_path = std::env::var("CARGO_BIN_EXE_distkv").expect("CARGO_BIN_EXE_distkv environment variable not set. Are you running with `cargo test`?");
+            let mut executable_path =
+                std::env::current_exe().expect("Failed to get current executable path");
+
+            println!(
+                "[Test Setup] Current executable path: {:?}",
+                executable_path
+            );
+
+            executable_path.pop(); // Removes the hash
+            executable_path.pop(); // Removes the deps
+
+            let distkv_bin_path = executable_path.join("distkv");
+
+            if !distkv_bin_path.exists() {
+                panic!("Compiled distkv binary not found at expected path: {:?}. Try running `cargo build` first.", distkv_bin_path);
+            }
+            println!(
+                "[Test Setup] Identified distkv binary at: {:?}",
+                distkv_bin_path
+            );
 
             let mut child = Command::new(&executable_path)
                 .arg("node")
