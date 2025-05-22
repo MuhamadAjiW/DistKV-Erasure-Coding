@@ -107,9 +107,9 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::AcceptRequest {
+                    PaxosMessage::LearnRequest {
                         epoch: (*epoch).clone(),
-                        request_id: request_id,
+                        commit_id: request_id,
                         source: source.to_string(),
                     },
                     &follower_addr,
@@ -155,7 +155,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_learn_ec(
+    pub async fn broadcast_accept_ec(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -206,9 +206,9 @@ impl Node {
 
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LearnRequest {
+                    PaxosMessage::AcceptRequest {
                         epoch: (*epoch).clone(),
-                        commit_id: (*commit_id).clone(),
+                        request_id: (*commit_id).clone(),
                         operation: sent_operation,
                         source: (*source).clone(),
                     },
@@ -262,7 +262,7 @@ impl Node {
     }
 
     #[instrument(skip_all)]
-    pub async fn broadcast_learn_replication(
+    pub async fn broadcast_accept_replication(
         &self,
         follower_list: &Vec<String>,
         operation: &Operation,
@@ -298,9 +298,9 @@ impl Node {
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
-                    PaxosMessage::LearnRequest {
+                    PaxosMessage::AcceptRequest {
                         epoch: (*epoch).clone(),
-                        commit_id: (*commit_id).clone(),
+                        request_id: (*commit_id).clone(),
                         operation: (*operation).clone(),
                         source: source.to_string(),
                     },

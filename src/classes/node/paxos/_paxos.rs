@@ -68,56 +68,56 @@ impl Node {
             }
         }
     }
-    pub async fn handle_accept_request(
-        &mut self,
-        src_addr: &String,
-        stream: TcpStream,
-        epoch: u64,
-        request_id: u64,
-    ) -> Result<(), io::Error> {
-        if self.state != PaxosState::Follower {
-            println!(
-                "[ERROR] Node received LeaderAccepted message in state {:?}",
-                self.state
-            );
-            return Ok(());
-        }
-        let leader_addr = match &self.leader_address {
-            Some(addr) => addr.to_string(),
-            None => {
-                println!("[ERROR] Leader address is not set");
-                return Ok(());
-            }
-        };
-        let leader_addr = &leader_addr as &str;
-        if src_addr != leader_addr {
-            println!("[ERROR] Follower received request message from not a leader");
-            return Ok(());
-        }
-
-        println!("Follower received accept message from leader");
-        let ack = PaxosMessage::Ack {
-            request_id,
-            epoch,
-            source: self.address.to_string(),
-        };
-        _ = reply_message(ack, stream).await;
-        println!("Follower acknowledged request ID: {}", request_id);
-
-        Ok(())
-    }
-
     pub async fn handle_leader_learn(
         &mut self,
         src_addr: &String,
         stream: TcpStream,
         epoch: u64,
         commit_id: u64,
+    ) -> Result<(), io::Error> {
+        if self.state != PaxosState::Follower {
+            println!(
+                "[ERROR] Node received learn request in state {:?}",
+                self.state
+            );
+            return Ok(());
+        }
+        let leader_addr = match &self.leader_address {
+            Some(addr) => addr.to_string(),
+            None => {
+                println!("[ERROR] Leader address is not set");
+                return Ok(());
+            }
+        };
+        let leader_addr = &leader_addr as &str;
+        if src_addr != leader_addr {
+            println!("[ERROR] Follower received request message from not a leader");
+            return Ok(());
+        }
+
+        println!("Follower received learn request message from leader");
+        let ack = PaxosMessage::Ack {
+            request_id: commit_id,
+            epoch,
+            source: self.address.to_string(),
+        };
+        _ = reply_message(ack, stream).await;
+        println!("Follower acknowledged commit ID: {}", commit_id);
+
+        Ok(())
+    }
+
+    pub async fn handle_leader_accept(
+        &mut self,
+        src_addr: &String,
+        stream: TcpStream,
+        epoch: u64,
+        request_id: u64,
         operation: &Operation,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
             println!(
-                "[ERROR] Node received LeaderLearn message in state {:?}",
+                "[ERROR] Node received leader accept message in state {:?}",
                 self.state
             );
             return Ok(());
@@ -133,12 +133,12 @@ impl Node {
         let leader_addr = &leader_addr as &str;
 
         if src_addr != leader_addr {
-            println!("[ERROR] Follower received request message from not a leader");
+            println!("[ERROR] Follower received leader accept message from not a leader");
             return Ok(());
         }
 
         // _NOTE: Check log synchronization safety, this could block the whole operation
-        self.synchronize_log(commit_id - 1).await;
+        self.synchronize_log(request_id - 1).await;
         self.store.transaction_log.append(operation).await;
         self.store.persistent.process_request(operation);
 
@@ -146,14 +146,14 @@ impl Node {
             self.store.memory.remove(&operation.kv.key);
         }
 
-        println!("Follower received learn message from leader",);
+        println!("Follower received leader accept message from leader",);
         let ack = PaxosMessage::Ack {
             epoch,
-            request_id: commit_id,
+            request_id,
             source: self.address.to_string(),
         };
         _ = reply_message(ack, stream).await;
-        println!("Follower acknowledged commit ID: {}", commit_id);
+        println!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())
     }
@@ -262,7 +262,5 @@ impl Node {
         }
 
         self.synchronize_log(commit_id).await;
-
-        // _TODO: Send a heartbeat acknowledgment back to the leader
     }
 }

@@ -5,14 +5,14 @@ use super::_operation::Operation;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PaxosMessage {
     // Paxos
-    AcceptRequest {
-        epoch: u64,
-        request_id: u64,
-        source: String,
-    },
     LearnRequest {
         epoch: u64,
         commit_id: u64,
+        source: String,
+    },
+    AcceptRequest {
+        epoch: u64,
+        request_id: u64,
         operation: Operation,
         source: String,
     },
