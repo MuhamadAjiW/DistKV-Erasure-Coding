@@ -15,67 +15,136 @@ use tokio::sync::Mutex;
 use tracing::instrument;
 use tracing_subscriber::fmt::format::FmtSpan;
 
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    // Run as a DistKV node
+    Node {
+        // The address for this node (e.g., "127.0.0.1:8080")
+        #[arg(long, short)]
+        addr: String,
+
+        // Path to the configuration file
+        #[arg(long, short)]
+        conf: String,
+
+        // Optional: Enable tracing for debugging
+        #[arg(long, short, default_value_t = false)]
+        trace: bool,
+    },
+    // Run as a DistKV client
+    Client {
+        // The address of a DistKV node to connect to (e.g., "127.0.0.1:8080")
+        #[arg(long, short = 'n')]
+        node_addr: String,
+
+        // The operation to perform (e.g., "GET key", "SET key value", "DEL key")
+        #[arg(long, short)]
+        op: String,
+
+        // Optional: Data to set for SET operations.
+        #[arg(long, short)]
+        data: Option<String>,
+
+        // Optional: Number of times to repeat the data for SET operations.
+        #[arg(long, short, default_value_t = 1)]
+        count: usize,
+
+        // Optional: Enable tracing for debugging
+        #[arg(long, short, default_value_t = false)]
+        trace: bool,
+    },
+}
+
 #[tokio::main]
 #[instrument]
 async fn main() -> Result<(), io::Error> {
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_file(true)
-        .with_target(false)
-        .with_ansi(false)
-        .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
-        .finish();
+    let cli = Cli::parse();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set global default subscriber");
+    match &cli.command {
+        Commands::Node { addr, conf, trace } => {
+            println!("Node starting...");
 
-    let role = std::env::args().nth(1).expect("No role provided");
+            if *trace {
+                println!("[INIT] Tracing enabled");
+                let subscriber = tracing_subscriber::fmt()
+                    .with_max_level(tracing::Level::DEBUG)
+                    .with_file(true)
+                    .with_target(false)
+                    .with_ansi(false)
+                    .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+                    .finish();
 
-    match role.as_str() {
-        "node" => {
-            let follower_addr_input = std::env::args().nth(2).expect("No address provided");
-            let configuration_input = std::env::args()
-                .nth(3)
-                .expect("No configuration file provided");
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Failed to set global default subscriber");
+            } else {
+                println!("[INIT] Tracing disabled");
+            }
 
-            let address = Address::from_string(&follower_addr_input).unwrap();
+            let address = Address::from_string(addr).unwrap();
             println!("[INIT] Starting node with address: {}", &address);
 
-            let node = Node::from_config(address, &configuration_input).await;
+            let node = Node::from_config(address, conf).await;
             println!("[INIT] Node started with address: {}", &node.address);
 
             let node_arc = Arc::new(Mutex::new(node));
             Node::run(node_arc).await;
         }
-        "client" => {
+        Commands::Client {
+            node_addr,
+            op,
+            data,
+            count,
+            trace,
+        } => {
             println!("Client starting...");
-            let node_addr_input = std::env::args().nth(2).expect("No node address provided");
 
-            let mut data = std::env::args()
-                .nth(3)
-                .expect("No request count provided")
-                .as_bytes()
-                .to_vec();
+            if *trace {
+                println!("[INIT] Tracing enabled");
+                let subscriber = tracing_subscriber::fmt()
+                    .with_max_level(tracing::Level::DEBUG)
+                    .with_file(true)
+                    .with_target(false)
+                    .with_ansi(false)
+                    .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+                    .finish();
 
-            if data.len() >= 3 && &data[0..3] == b"SET" {
-                let data_input = std::env::args().nth(4).expect("No data provided");
-                let data_count_input = std::env::args().nth(5).expect("No data count provided");
-
-                let data_count = data_count_input
-                    .parse()
-                    .expect("Invalid data count parameter");
-                let mut data_repeated = data_input.repeat(data_count).as_bytes().to_vec();
-
-                data.append(&mut data_repeated);
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("Failed to set global default subscriber");
+            } else {
+                println!("[INIT] Tracing disabled");
             }
 
-            let operation = Operation::parse(&data).unwrap();
+            let mut operation_bytes = op.as_bytes().to_vec();
+
+            if op.starts_with("SET") {
+                if let Some(data_to_repeat) = data {
+                    let mut repeated_data = data_to_repeat.repeat(*count).as_bytes().to_vec();
+                    operation_bytes.append(&mut repeated_data);
+                } else {
+                    eprintln!("Error: 'SET' operation requires '--data' argument.");
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "SET operation requires data",
+                    ));
+                }
+            }
+
+            let operation = Operation::parse(&operation_bytes).unwrap();
             match send_message(
                 PaxosMessage::ClientRequest {
                     operation,
                     source: "CLIENT".to_string(),
                 },
-                &node_addr_input,
+                node_addr,
             )
             .await
             {
@@ -87,9 +156,6 @@ async fn main() -> Result<(), io::Error> {
                     eprintln!("Failed to send message: {}", e);
                 }
             }
-        }
-        _ => {
-            panic!("Invalid command! Use 'node' or 'client'.");
         }
     }
 
