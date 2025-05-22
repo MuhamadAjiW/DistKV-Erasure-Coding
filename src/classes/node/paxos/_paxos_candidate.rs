@@ -7,7 +7,6 @@ use crate::{
 
 // TODO: Implement
 impl Node {
-    // Active command
     pub async fn start_leader_election(&mut self) -> Result<(), io::Error> {
         println!("[ELECTION] Starting leader election");
 

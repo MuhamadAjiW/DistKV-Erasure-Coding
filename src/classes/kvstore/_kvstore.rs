@@ -39,51 +39,75 @@ impl KvStoreModule {
         let result: String;
         let ec = self.ec.clone();
         if !ec.active {
-            // _TODO: Inactive EC service
-            println!("[ERROR] EC service is inactive");
-            return Ok(None);
+            match self.persistent.get(key) {
+                Some(value) => {
+                    result = String::from_utf8(value)
+                        .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
+
+                    return Ok(Some(result));
+                }
+                None => {
+                    let follower_list: Vec<String> = {
+                        let followers_guard = node.cluster_list.lock().await;
+                        followers_guard.iter().cloned().collect()
+                    };
+
+                    for follower_address in follower_list {
+                        match node.request_replicated_data(&follower_address, key).await {
+                            Some(value) => {
+                                let str_value = String::from_utf8(value.clone())
+                                    .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
+
+                                self.memory.set(key, &str_value);
+                                self.persistent.set(key, &value);
+                                return Ok(Some(str_value));
+                            }
+                            None => {
+                                println!(
+                                    "[INFO] Follower {} did not have key {}",
+                                    follower_address, key
+                                );
+                                continue; // Try the next follower
+                            }
+                        }
+                    }
+
+                    println!("[ERROR] Key {} not found on any replica.", key);
+                    return Ok(None);
+                }
+            }
         }
 
-        match self.persistent.get(key) {
-            Some(value) => {
-                let follower_list: Vec<String> = {
-                    let followers_guard = node.cluster_list.lock().await;
-                    followers_guard.iter().cloned().collect()
-                };
+        let self_shard: Option<Vec<u8>> = self.persistent.get(key);
 
-                let recovery = node
-                    .broadcast_get_shards(&follower_list, &Some(value), key)
-                    .await;
+        let follower_list: Vec<String> = {
+            let followers_guard = node.cluster_list.lock().await;
+            followers_guard.iter().cloned().collect()
+        };
 
-                let mut recovery: Vec<Option<Vec<u8>>> = match recovery {
-                    Some(recovery) => recovery,
-                    None => {
-                        println!("[ERROR] Failed to recover shards");
-                        return Ok(None);
-                    }
-                };
+        let recovery = node
+            .broadcast_get_shards(&follower_list, &self_shard, key)
+            .await;
 
-                // for ele in recovery.clone() {
-                //     println!("Shards: {:?}", ele.unwrap_or_default());
-                // }
-
-                let reconstructed_data = match ec.reconstruct(&mut recovery) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        println!("[ERROR] Failed to reconstruct shards: {:?}", e);
-                        return Ok(None);
-                    }
-                };
-
-                result = String::from_utf8(reconstructed_data)
-                    .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
-            }
+        let mut recovery: Vec<Option<Vec<u8>>> = match recovery {
+            Some(recovery) => recovery,
             None => {
-                // _TODO: Handle partially missing shard
-                println!("No value found");
+                println!("[ERROR] Failed to recover shards");
                 return Ok(None);
             }
-        }
+        };
+
+        let reconstructed_data = match ec.reconstruct(&mut recovery) {
+            Ok(data) => data,
+            Err(e) => {
+                println!("[ERROR] Failed to reconstruct shards: {:?}", e);
+                return Ok(None);
+            }
+        };
+
+        result = String::from_utf8(reconstructed_data)
+            .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
+
         self.memory.set(key, &result);
 
         Ok(Some(result))

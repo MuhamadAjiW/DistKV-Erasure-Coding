@@ -64,7 +64,6 @@ impl Node {
     pub async fn handle_recovery_request(&self, src_addr: &String, stream: TcpStream, key: &str) {
         match self.store.persistent.get(key) {
             Some(value) => {
-                // Send the data to the requestor
                 _ = reply_message(
                     PaxosMessage::RecoveryReply {
                         index: self.cluster_index,
@@ -422,12 +421,15 @@ impl Node {
                     }
                     Ok(Err(e)) => {
                         println!(
-                            "Error receiving acknowledgment from {}: {}",
+                            "Error receiving recovery response from {}: {}",
                             follower_addr, e
                         );
                     }
                     Err(_) => {
-                        println!("Timeout waiting for acknowledgment from {}", follower_addr);
+                        println!(
+                            "Timeout waiting for recovery response from {}",
+                            follower_addr
+                        );
                     }
                 }
             });
@@ -443,5 +445,66 @@ impl Node {
 
         let recovery_shards = recovery_shards.read().await;
         Some(recovery_shards.clone())
+    }
+
+    #[instrument(skip_all)]
+    pub async fn request_replicated_data(
+        &self,
+        follower_addr: &String,
+        key: &str,
+    ) -> Option<Vec<u8>> {
+        let key = key.to_string();
+
+        let stream = match send_message(
+            PaxosMessage::RecoveryRequest {
+                key,
+                source: self.address.to_string(),
+            },
+            follower_addr.as_str(),
+        )
+        .await
+        {
+            Ok(stream) => stream,
+            Err(_e) => {
+                println!(
+                    "Failed to broadcast request to follower at {}",
+                    follower_addr
+                );
+                return None;
+            }
+        };
+
+        match timeout(Duration::from_secs(2), receive_message(stream)).await {
+            Ok(Ok((_stream, ack))) => {
+                if let PaxosMessage::RecoveryReply {
+                    index: _,
+                    payload,
+                    source: _,
+                } = ack
+                {
+                    return Some(payload);
+                } else {
+                    println!(
+                        "Unexpected message type from follower at {}: {:?}",
+                        follower_addr, ack
+                    );
+                    return None;
+                }
+            }
+            Ok(Err(e)) => {
+                println!(
+                    "Error receiving recovery response from {}: {}",
+                    follower_addr, e
+                );
+                return None;
+            }
+            Err(_) => {
+                println!(
+                    "Timeout waiting for recovery response from {}",
+                    follower_addr
+                );
+                return None;
+            }
+        }
     }
 }
