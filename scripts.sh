@@ -139,17 +139,17 @@ run_node() {
         echo "Starting node on ${addr} with config ${config_file} and tracing disabled..."
     fi
     
-    local cmd="cargo run -- node --addr ${addr} --conf ${config_file} ${file_output} ${trace}"
+    local cmd="cargo run --release -- node --addr ${addr} --conf ${config_file} ${file_output} ${trace}"
 
     if [ -n "$file_output" ]; then
         local log_dir="./log"
         mkdir -p "$log_dir"
         local log_file="${log_dir}/node_${addr//:/_}.log"
         echo "Logging to file: ${log_file}"
-        cargo run -- node --addr ${addr} --conf ${config_file} ${trace} > "${log_file}"
+        cargo run --release -- node --addr ${addr} --conf ${config_file} ${trace} > "${log_file}"
     else
         echo "Logging to terminal"
-        cargo run -- node --addr ${addr} --conf ${config_file} ${trace}
+        cargo run --release -- node --addr ${addr} --conf ${config_file} ${trace}
     fi
 }
 
@@ -276,20 +276,39 @@ run_all() {
 
 }
 
+
+virtual_users=(
+    250 500 1000
+)
+
+size=(
+    10240
+)
+
 bench_system() {
     echo "Running system benchmark..."
     local base_url_env="$1"
     if [ -n "$base_url_env" ]; then
-        echo "Using BASE_URL: ${base_url_env}"
-        k6 run -e "$base_url_env" ./benchmark/script.js
+        for vus_value in "${virtual_users[@]}"; do
+            for size_value in "${size[@]}"; do
+                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "BASE_URL=$base_url_env" ./benchmark/script.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.txt"
+            done
+        done
     else
-        echo "Error: No environment variable provided for benchmark. Usage: bench_system 'BASE_URL=http://<leader_ip>:<leader_http_port>'"
-        echo "Example: ./scripts.sh bench_system 'BASE_URL=http://127.0.0.1:8080'"
+        echo "Error: No environment variable provided for benchmark. Usage: bench_system 'http://<leader_ip>:<leader_http_port>'"
+        echo "Example: ./scripts.sh bench_system 'http://127.0.0.1:8080'"
     fi
 }
 bench_baseline() {
-    echo "Running benchmark on etcd for baseline (assuming etcd is configured in k6 script)..."
-    k6 run ./benchmark/script.js
+    echo "Running benchmark on etcd for baseline..."
+
+    for vus_value in "${virtual_users[@]}"; do
+        for size_value in "${size[@]}"; do
+            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}"
+            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ./benchmark/script.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.txt"
+        done
+    done
 }
 
 if [ "$1" == "clean" ]; then
@@ -341,7 +360,7 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "          Base URL should be in the format 'http://<leader_ip>:<leader_http_port>'."
     echo ""
     echo "  bench_baseline                                                              : "
-    echo "          Runs k6 benchmark for baseline (assuming etcd is configured in k6 script)."
+    echo "          Runs k6 benchmark for baseline."
     echo ""
     echo "  help                                                                        : "
     echo "          Displays this help message."

@@ -4,6 +4,7 @@ import { b64encode } from 'k6/encoding';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:2379/v3';
 const VUS = __ENV.VUS || 1;
+const SIZE = __ENV.SIZE || 10240;
 const DURATION = __ENV.DURATION || '10s';
 
 export const options = {
@@ -13,7 +14,7 @@ export const options = {
 
 export default function () {
     const key = Math.random().toString(36).substring(2, 12);
-    const value = 'x'.repeat(1024 * 10);
+    const value = 'x'.repeat(SIZE);
 
     const encodedKey = b64encode(key);
     const encodedValue = b64encode(value);
