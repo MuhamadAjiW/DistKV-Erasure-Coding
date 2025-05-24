@@ -335,6 +335,7 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo ""
     echo "  stop_all                                                                    : "
     echo "          Kills all screen sessions created by this script and attempts to stop Memcached processes."
+    echo ""
     echo "  bench_system 'BASE_URL=<leader_addr>'                                       : "
     echo "          Runs k6 benchmark against the running DistKV system."
     echo "          Base URL should be in the format 'http://<leader_ip>:<leader_http_port>'."
