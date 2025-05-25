@@ -427,7 +427,6 @@ impl Node {
         node.print_info().await;
     }
 
-    #[instrument(skip_all)]
     pub async fn run(node_arc: Arc<Mutex<Node>>) {
         println!("[INIT] Running node...");
 
@@ -437,6 +436,20 @@ impl Node {
         Node::run_tcp_loop(node_arc.clone());
         Node::run_http_loop(node_arc.clone());
 
-        loop {}
+        println!("[INIT] Node is now running");
+
+        tokio::signal::ctrl_c()
+            .await
+            .expect("[ERROR] Failed to listen for Ctrl+C signal");
+
+        println!("[INIT] Ctrl+C signal received, stopping node...");
+
+        {
+            let mut node = node_arc.lock().await;
+            node.running = false;
+            println!("[INIT] Node is stopping...");
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 }
