@@ -1,6 +1,7 @@
 use std::{io, sync::atomic::Ordering, u64};
 
 use tokio::{net::TcpStream, time::Instant};
+use tracing::{error, info, warn};
 
 use crate::{
     base_libs::{
@@ -24,7 +25,7 @@ impl Node {
         request_id: u64,
     ) {
         if epoch < self.epoch {
-            println!(
+            info!(
                 "[ELECTION] Node received a leader request with a lower epoch: {}",
                 epoch
             );
@@ -32,7 +33,7 @@ impl Node {
         }
 
         if epoch > self.epoch {
-            println!(
+            info!(
                 "[ELECTION] Node received a leader request with a higher epoch: {}",
                 epoch
             );
@@ -61,7 +62,7 @@ impl Node {
                 .await;
             }
             PaxosState::Leader | PaxosState::Candidate => {
-                println!(
+                info!(
                     "[ELECTION] {:?} Node received a leader request with the same request id",
                     self.state
                 );
@@ -76,7 +77,7 @@ impl Node {
         commit_id: u64,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
-            println!(
+            warn!(
                 "[ERROR] Node received learn request in state {:?}",
                 self.state
             );
@@ -85,24 +86,24 @@ impl Node {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                println!("[ERROR] Leader address is not set");
+                error!("[ERROR] Leader address is not set");
                 return Ok(());
             }
         };
         let leader_addr = &leader_addr as &str;
         if src_addr != leader_addr {
-            println!("[ERROR] Follower received request message from not a leader");
+            warn!("[ERROR] Follower received request message from not a leader");
             return Ok(());
         }
 
-        println!("Follower received learn request message from leader");
+        info!("Follower received learn request message from leader");
         let ack = PaxosMessage::Ack {
             request_id: commit_id,
             epoch,
             source: self.address.to_string(),
         };
         _ = reply_message(ack, stream).await;
-        println!("Follower acknowledged commit ID: {}", commit_id);
+        info!("Follower acknowledged commit ID: {}", commit_id);
 
         Ok(())
     }
@@ -116,7 +117,7 @@ impl Node {
         operation: &Operation,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
-            println!(
+            warn!(
                 "[ERROR] Node received leader accept message in state {:?}",
                 self.state
             );
@@ -126,14 +127,14 @@ impl Node {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
             None => {
-                println!("[ERROR] Leader address is not set");
+                error!("[ERROR] Leader address is not set");
                 return Ok(());
             }
         };
         let leader_addr = &leader_addr as &str;
 
         if src_addr != leader_addr {
-            println!("[ERROR] Follower received leader accept message from not a leader");
+            warn!("[ERROR] Follower received leader accept message from not a leader");
             return Ok(());
         }
 
@@ -146,14 +147,14 @@ impl Node {
             self.store.memory.remove(&operation.kv.key);
         }
 
-        println!("Follower received leader accept message from leader",);
+        info!("Follower received leader accept message from leader",);
         let ack = PaxosMessage::Ack {
             epoch,
             request_id,
             source: self.address.to_string(),
         };
         _ = reply_message(ack, stream).await;
-        println!("Follower acknowledged request ID: {}", request_id);
+        info!("Follower acknowledged request ID: {}", request_id);
 
         Ok(())
     }
@@ -166,7 +167,7 @@ impl Node {
     ) {
         match self.state {
             _ => {
-                println!(
+                warn!(
                     "[ERROR] Node received unexpected FollowerAck message in state {:?}",
                     self.state
                 );
@@ -176,7 +177,7 @@ impl Node {
 
     pub async fn handle_leader_vote(&mut self, src_addr: &String, _stream: TcpStream, epoch: u64) {
         if self.state != PaxosState::Candidate {
-            println!(
+            warn!(
                 "[ERROR] Node received LeaderVote message in state {:?}",
                 self.state
             );
@@ -185,7 +186,7 @@ impl Node {
 
         self.vote_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        println!(
+        info!(
             "[ELECTION] Received vote from {} for epoch: {}",
             src_addr, epoch
         );
@@ -193,7 +194,7 @@ impl Node {
         let quorum = self.cluster_list.lock().await.len() / 2;
 
         if self.vote_count.load(std::sync::atomic::Ordering::SeqCst) > quorum {
-            println!("[ELECTION] Received quorum votes, declaring leader");
+            info!("[ELECTION] Received quorum votes, declaring leader");
             self.declare_leader().await;
         }
     }
@@ -206,7 +207,7 @@ impl Node {
         commit_id: u64,
     ) {
         if epoch < self.epoch {
-            println!(
+            info!(
                 "[ELECTION] Node received a leader declaration with a lower epoch: {}",
                 epoch
             );
@@ -214,7 +215,7 @@ impl Node {
         }
 
         if epoch > self.epoch {
-            println!(
+            info!(
                 "[ELECTION] Node received a leader declaration with a higher epoch: {}",
                 epoch
             );
@@ -224,7 +225,7 @@ impl Node {
 
         self.leader_address = Address::from_string(&src_addr);
         self.state = PaxosState::Follower;
-        println!("[ELECTION] leader is now {:?}", self.leader_address);
+        info!("[ELECTION] leader is now {:?}", self.leader_address);
 
         self.synchronize_log(commit_id).await;
     }
@@ -237,7 +238,7 @@ impl Node {
         commit_id: u64,
     ) {
         if epoch < self.epoch {
-            println!(
+            info!(
                 "[HEARTBEAT] Node received a heartbeat with a lower epoch: {}",
                 epoch
             );
@@ -245,7 +246,7 @@ impl Node {
         }
 
         if epoch > self.epoch {
-            println!(
+            info!(
                 "[HEARTBEAT] Node received a heartbeat with a higher epoch: {}",
                 epoch
             );

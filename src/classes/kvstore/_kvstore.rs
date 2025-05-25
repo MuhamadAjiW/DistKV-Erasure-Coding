@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::instrument;
+use tracing::{error, info, instrument};
 
 use crate::classes::{ec::_ec::ECService, node::_node::Node};
 
@@ -30,7 +30,7 @@ impl KvStoreModule {
         self.transaction_log.initialize().await;
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn get_from_cluster(
         &self,
         key: &String,
@@ -63,7 +63,7 @@ impl KvStoreModule {
                                 return Ok(Some(str_value));
                             }
                             None => {
-                                println!(
+                                info!(
                                     "[INFO] Follower {} did not have key {}",
                                     follower_address, key
                                 );
@@ -72,7 +72,7 @@ impl KvStoreModule {
                         }
                     }
 
-                    println!("[ERROR] Key {} not found on any replica.", key);
+                    error!("[ERROR] Key {} not found on any replica.", key);
                     return Ok(None);
                 }
             }
@@ -92,7 +92,7 @@ impl KvStoreModule {
         let mut recovery: Vec<Option<Vec<u8>>> = match recovery {
             Some(recovery) => recovery,
             None => {
-                println!("[ERROR] Failed to recover shards");
+                error!("[ERROR] Failed to recover shards");
                 return Ok(None);
             }
         };
@@ -100,7 +100,7 @@ impl KvStoreModule {
         let reconstructed_data = match ec.reconstruct(&mut recovery) {
             Ok(data) => data,
             Err(e) => {
-                println!("[ERROR] Failed to reconstruct shards: {:?}", e);
+                error!("[ERROR] Failed to reconstruct shards: {:?}", e);
                 return Ok(None);
             }
         };

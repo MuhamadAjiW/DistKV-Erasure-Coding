@@ -1,4 +1,5 @@
 use tokio::io;
+use tracing::info;
 
 use crate::{
     base_libs::_paxos_types::PaxosMessage,
@@ -8,7 +9,7 @@ use crate::{
 // TODO: Implement
 impl Node {
     pub async fn start_leader_election(&mut self) -> Result<(), io::Error> {
-        println!("[ELECTION] Starting leader election");
+        info!("[ELECTION] Starting leader election");
 
         self.epoch += 1;
         self.vote_count
@@ -25,7 +26,7 @@ impl Node {
     }
 
     pub async fn declare_leader(&mut self) {
-        println!("[ELECTION] Declaring self as leader");
+        info!("[ELECTION] Declaring self as leader");
         self.state = PaxosState::Leader;
         self.leader_address = Some(self.address.clone());
 

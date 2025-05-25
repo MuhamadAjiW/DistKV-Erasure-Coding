@@ -12,7 +12,7 @@ use distkv::{
     classes::node::_node::Node,
 };
 use tokio::sync::Mutex;
-use tracing::instrument;
+use tracing::{error, info, instrument};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use clap::{Parser, Subcommand};
@@ -71,29 +71,30 @@ async fn main() -> Result<(), io::Error> {
 
     match &cli.command {
         Commands::Node { addr, conf, trace } => {
-            println!("Node starting...");
-
-            if *trace {
-                println!("[INIT] Tracing enabled");
-                let subscriber = tracing_subscriber::fmt()
-                    .with_max_level(tracing::Level::DEBUG)
+            let subscriber = if *trace {
+                tracing_subscriber::fmt()
+                    .with_max_level(tracing::Level::TRACE)
                     .with_file(true)
                     .with_target(false)
                     .with_ansi(false)
                     .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
-                    .finish();
-
-                tracing::subscriber::set_global_default(subscriber)
-                    .expect("Failed to set global default subscriber");
+                    .finish()
             } else {
-                println!("[INIT] Tracing disabled");
-            }
+                tracing_subscriber::fmt()
+                    .with_max_level(tracing::Level::INFO)
+                    .with_file(false)
+                    .with_target(false)
+                    .with_ansi(false)
+                    .finish()
+            };
+            tracing::subscriber::set_global_default(subscriber)
+                .expect("Failed to set global default subscriber");
 
             let address = Address::from_string(addr).unwrap();
-            println!("[INIT] Starting node with address: {}", &address);
+            info!("[INIT] Starting node with address: {}", &address);
 
             let node = Node::from_config(address, conf).await;
-            println!("[INIT] Node started with address: {}", &node.address);
+            info!("[INIT] Node started with address: {}", &node.address);
 
             let node_arc = Arc::new(Mutex::new(node));
             Node::run(node_arc).await;
@@ -105,10 +106,10 @@ async fn main() -> Result<(), io::Error> {
             count,
             trace,
         } => {
-            println!("Client starting...");
+            info!("Client starting...");
 
             if *trace {
-                println!("[INIT] Tracing enabled");
+                info!("[INIT] Tracing enabled");
                 let subscriber = tracing_subscriber::fmt()
                     .with_max_level(tracing::Level::DEBUG)
                     .with_file(true)
@@ -120,7 +121,7 @@ async fn main() -> Result<(), io::Error> {
                 tracing::subscriber::set_global_default(subscriber)
                     .expect("Failed to set global default subscriber");
             } else {
-                println!("[INIT] Tracing disabled");
+                info!("[INIT] Tracing disabled");
             }
 
             let mut operation_bytes = op.as_bytes().to_vec();
@@ -130,7 +131,7 @@ async fn main() -> Result<(), io::Error> {
                     let mut repeated_data = data_to_repeat.repeat(*count).as_bytes().to_vec();
                     operation_bytes.append(&mut repeated_data);
                 } else {
-                    eprintln!("Error: 'SET' operation requires '--data' argument.");
+                    error!("Error: 'SET' operation requires '--data' argument.");
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "SET operation requires data",
@@ -150,10 +151,10 @@ async fn main() -> Result<(), io::Error> {
             {
                 Ok(stream) => {
                     let response = receive_string(stream).await.unwrap().1;
-                    println!("Reply: {}", response);
+                    info!("Reply: {}", response);
                 }
                 Err(e) => {
-                    eprintln!("Failed to send message: {}", e);
+                    error!("Failed to send message: {}", e);
                 }
             }
         }

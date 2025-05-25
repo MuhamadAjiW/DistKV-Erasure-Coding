@@ -12,7 +12,7 @@ use tokio::{
     task::JoinSet,
     time::timeout,
 };
-use tracing::instrument;
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     base_libs::{
@@ -26,7 +26,7 @@ use crate::{
 use super::_node::Node;
 
 impl Node {
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn handle_client_request(
         &mut self,
         _src_addr: &String,
@@ -37,11 +37,11 @@ impl Node {
 
         match operation.op_type {
             OperationType::BAD => {
-                println!("[REQUEST] Invalid request");
+                warn!("[REQUEST] Invalid request");
                 result = "Invalid request".to_string();
             }
             OperationType::PING => {
-                println!("[REQUEST] Received PING request");
+                info!("[REQUEST] Received PING request");
                 result = "PONG".to_string();
             }
             OperationType::GET | OperationType::DELETE | OperationType::SET => {
@@ -49,7 +49,7 @@ impl Node {
                     self.request_id += 1;
                 }
 
-                println!("[REQUEST] Received request: {:?}", operation.op_type);
+                info!("[REQUEST] Received request: {:?}", operation.op_type);
                 result = self
                     .process_request(&operation, self.request_id)
                     .await
@@ -60,7 +60,7 @@ impl Node {
         _ = reply_string(result.as_str(), stream).await;
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn handle_recovery_request(&self, src_addr: &String, stream: TcpStream, key: &str) {
         match self.store.persistent.get(key) {
             Some(value) => {
@@ -73,18 +73,18 @@ impl Node {
                     stream,
                 )
                 .await;
-                println!("Sent data request to follower at {}", src_addr);
+                info!("Sent data request to follower at {}", src_addr);
             }
             None => {
-                println!("No value found");
+                warn!("No value found");
             }
         }
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn broadcast_accept(&self, follower_list: &Vec<String>) -> usize {
         if follower_list.is_empty() {
-            println!("No followers registered. Cannot proceed.");
+            error!("No followers registered. Cannot proceed.");
             return 0;
         }
 
@@ -124,13 +124,13 @@ impl Node {
                         }
                     }
                     Ok(Err(e)) => {
-                        println!(
+                        error!(
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
                         );
                     }
                     Err(_) => {
-                        println!(
+                        error!(
                             "Timeout waiting for acknowledgment from follower at {}",
                             follower_addr
                         );
@@ -153,7 +153,7 @@ impl Node {
         acks
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn broadcast_accept_ec(
         &self,
         follower_list: &Vec<String>,
@@ -162,7 +162,7 @@ impl Node {
         commit_id: u64,
     ) -> usize {
         if follower_list.is_empty() {
-            println!("No followers registered. Cannot proceed.");
+            error!("No followers registered. Cannot proceed.");
             return 0;
         }
 
@@ -226,14 +226,14 @@ impl Node {
                         }
                     }
                     Ok(Err(e)) => {
-                        println!(
+                        error!(
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
                         );
                         return Some(0);
                     }
                     Err(_) => {
-                        println!(
+                        warn!(
                             "Timeout waiting for acknowledgment from follower at {}",
                             follower_addr
                         );
@@ -260,7 +260,7 @@ impl Node {
         acks
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn broadcast_accept_replication(
         &self,
         follower_list: &Vec<String>,
@@ -268,7 +268,7 @@ impl Node {
         commit_id: u64,
     ) -> usize {
         if follower_list.is_empty() {
-            println!("No followers registered. Cannot proceed.");
+            error!("No followers registered. Cannot proceed.");
             return 0;
         }
 
@@ -316,13 +316,13 @@ impl Node {
                         }
                     }
                     Ok(Err(e)) => {
-                        println!(
+                        error!(
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
                         );
                     }
                     Err(_) => {
-                        println!(
+                        warn!(
                             "Timeout waiting for acknowledgment from follower at {}",
                             follower_addr
                         );
@@ -349,7 +349,7 @@ impl Node {
         acks
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn broadcast_get_shards(
         &self,
         follower_list: &Vec<String>,
@@ -392,7 +392,7 @@ impl Node {
                 {
                     Ok(stream) => stream,
                     Err(_e) => {
-                        println!(
+                        error!(
                             "Failed to broadcast request to follower at {}",
                             follower_addr
                         );
@@ -420,13 +420,13 @@ impl Node {
                         }
                     }
                     Ok(Err(e)) => {
-                        println!(
+                        error!(
                             "Error receiving recovery response from {}: {}",
                             follower_addr, e
                         );
                     }
                     Err(_) => {
-                        println!(
+                        error!(
                             "Timeout waiting for recovery response from {}",
                             follower_addr
                         );
@@ -447,7 +447,7 @@ impl Node {
         Some(recovery_shards.clone())
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn request_replicated_data(
         &self,
         follower_addr: &String,
@@ -466,7 +466,7 @@ impl Node {
         {
             Ok(stream) => stream,
             Err(_e) => {
-                println!(
+                error!(
                     "Failed to broadcast request to follower at {}",
                     follower_addr
                 );
@@ -484,7 +484,7 @@ impl Node {
                 {
                     return Some(payload);
                 } else {
-                    println!(
+                    error!(
                         "Unexpected message type from follower at {}: {:?}",
                         follower_addr, ack
                     );
@@ -492,14 +492,14 @@ impl Node {
                 }
             }
             Ok(Err(e)) => {
-                println!(
+                error!(
                     "Error receiving recovery response from {}: {}",
                     follower_addr, e
                 );
                 return None;
             }
             Err(_) => {
-                println!(
+                warn!(
                     "Timeout waiting for recovery response from {}",
                     follower_addr
                 );

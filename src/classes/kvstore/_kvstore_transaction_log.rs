@@ -4,6 +4,7 @@ use tokio::{
     fs::File,
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
 };
+use tracing::debug;
 
 use crate::base_libs::_operation::Operation;
 
@@ -77,6 +78,6 @@ impl KvTransactionLog {
         self.transaction.truncate(length);
         self.transaction
             .iter()
-            .for_each(|op| println!("Truncated operation: {}", op.to_string()));
+            .for_each(|op| debug!("Truncated operation: {}", op.to_string()));
     }
 }

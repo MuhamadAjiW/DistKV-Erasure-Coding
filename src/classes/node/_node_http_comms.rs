@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Mutex, time::Instant};
-use tracing::instrument;
+use tracing::{info, instrument};
 
 use crate::base_libs::_operation::{BinKV, Operation, OperationType};
 
@@ -32,9 +32,9 @@ struct BaseResponse {
 }
 
 impl Node {
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn http_healthcheck(node_data: web::Data<Arc<Mutex<Node>>>) -> impl Responder {
-        println!("[REQUEST] Received healthcheck requesst");
+        info!("[REQUEST] Received healthcheck requesst");
 
         let node = node_data.lock().await;
         node.print_info().await;
@@ -42,12 +42,12 @@ impl Node {
         HttpResponse::Ok().body("HTTP server running just fine")
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn http_get(
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<GetBody>,
     ) -> impl Responder {
-        println!("[REQUEST] GET request received");
+        info!("[REQUEST] GET request received");
         let mut node = node_data.lock().await;
 
         let operation = Operation {
@@ -75,12 +75,12 @@ impl Node {
         HttpResponse::Ok().json(response)
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn http_put(
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<PostBody>,
     ) -> impl Responder {
-        println!("[REQUEST] POST request received");
+        info!("[REQUEST] POST request received");
         let mut node = node_data.lock().await;
         node.request_id += 1;
 
@@ -109,12 +109,12 @@ impl Node {
         HttpResponse::Ok().json(response)
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn http_delete(
         node_data: web::Data<Arc<Mutex<Node>>>,
         body: web::Json<DeleteBody>,
     ) -> impl Responder {
-        println!("[REQUEST] DELETE request received");
+        info!("[REQUEST] DELETE request received");
         let mut node = node_data.lock().await;
         node.request_id += 1;
 
@@ -127,7 +127,7 @@ impl Node {
         };
         let request_id = node.request_id;
 
-        println!("[REQUEST] Processing DELETE request");
+        info!("[REQUEST] Processing DELETE request");
         let result = node
             .process_request(&operation, request_id)
             .await

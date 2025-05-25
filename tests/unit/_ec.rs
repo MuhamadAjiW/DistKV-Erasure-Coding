@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use distkv::classes::ec::_ec::ECService;
+    use tracing::info;
 
     fn setup_ec_service(shard_count: usize, parity_count: usize) -> ECService {
         ECService::new(true, shard_count, parity_count)
@@ -14,7 +15,7 @@ mod tests {
     fn test_encode_decode_full() {
         let ec = setup_ec_service(4, 2);
         let original_data = sample_data(100);
-        println!("Length of original data: {}", original_data.len());
+        info!("Length of original data: {}", original_data.len());
 
         let shards = ec.encode(&original_data);
 

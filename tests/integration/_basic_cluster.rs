@@ -1,4 +1,5 @@
 use reqwest::Client;
+use tracing::info;
 
 use crate::helper::_cluster_helper::TestCluster;
 
@@ -9,7 +10,7 @@ async fn test_single_node_http_healthcheck_from_config() {
 
     let client = Client::new();
 
-    println!("[Test] Checking healthcheck...");
+    info!("[Test] Checking healthcheck...");
     let resp = client
         .get(&format!("http://{}/", node.http_address.to_string()))
         .send()
@@ -22,5 +23,5 @@ async fn test_single_node_http_healthcheck_from_config() {
     );
     let body = resp.text().await.expect("Failed to get healthcheck body");
     assert_eq!(body, "HTTP server running just fine");
-    println!("[Test] Healthcheck passed.");
+    info!("[Test] Healthcheck passed.");
 }

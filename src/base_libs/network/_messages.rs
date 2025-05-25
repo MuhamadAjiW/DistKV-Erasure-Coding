@@ -1,6 +1,7 @@
 use bincode;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tracing::error;
 
 use crate::base_libs::_paxos_types::PaxosMessage;
 
@@ -15,7 +16,7 @@ pub async fn listen(socket: &TcpListener) -> io::Result<(TcpStream, PaxosMessage
     let message: PaxosMessage = match bincode::deserialize(&buffer) {
         Ok(msg) => msg,
         Err(e) => {
-            eprintln!("Failed to deserialize PaxosMessage: {:?}", e);
+            error!("Failed to deserialize PaxosMessage: {:?}", e);
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
         }
     };
@@ -61,7 +62,7 @@ pub async fn receive_message(mut stream: TcpStream) -> io::Result<(TcpStream, Pa
     let message: PaxosMessage = match bincode::deserialize(&buffer) {
         Ok(msg) => msg,
         Err(e) => {
-            eprintln!("Failed to deserialize PaxosMessage: {:?}", e);
+            error!("Failed to deserialize PaxosMessage: {:?}", e);
             return Err(io::Error::new(io::ErrorKind::InvalidData, e));
         }
     };

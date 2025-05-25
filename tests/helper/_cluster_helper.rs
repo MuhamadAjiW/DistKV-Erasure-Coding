@@ -6,6 +6,7 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
 };
+use tracing::{info, error};
 
 pub struct TestNodeHandle {
     pub address: Address,
@@ -75,7 +76,7 @@ impl TestCluster {
             let tcp_addr = Address::new("127.0.0.1", original_node_config.port);
             let http_addr = Address::new("127.0.0.1", original_node_config.http_port);
 
-            println!(
+            info!(
                 "[Test Setup] Spawning node {} at TCP:{} HTTP:{} using config: {:?}",
                 i, tcp_addr, http_addr, node_config_temp_path
             );
@@ -83,7 +84,7 @@ impl TestCluster {
             let mut executable_path =
                 std::env::current_exe().expect("Failed to get current executable path");
 
-            println!(
+            info!(
                 "[Test Setup] Current executable path: {:?}",
                 executable_path
             );
@@ -96,7 +97,7 @@ impl TestCluster {
             if !distkv_bin_path.exists() {
                 panic!("Compiled distkv binary not found at expected path: {:?}. Try running `cargo build` first.", distkv_bin_path);
             }
-            println!(
+            info!(
                 "[Test Setup] Identified distkv binary at: {:?}",
                 distkv_bin_path
             );
@@ -116,14 +117,14 @@ impl TestCluster {
             tokio::spawn(async move {
                 let mut lines = stdout_reader.lines();
                 while let Some(line) = lines.next_line().await.unwrap() {
-                    println!("[Node {} STDOUT] {}", node_stdout_addr, line);
+                    info!("[Node {} STDOUT] {}", node_stdout_addr, line);
                 }
             });
             let node_stderr_addr = tcp_addr.to_string();
             tokio::spawn(async move {
                 let mut lines = stderr_reader.lines();
                 while let Some(line) = lines.next_line().await.unwrap() {
-                    eprintln!("[Node {} STDERR] {}", node_stderr_addr, line);
+                    error!("[Node {} STDERR] {}", node_stderr_addr, line);
                 }
             });
 
@@ -145,12 +146,12 @@ impl TestCluster {
 
 impl Drop for TestCluster {
     fn drop(&mut self) {
-        println!("[Test Cleanup] Tearing down cluster...");
+        info!("[Test Cleanup] Tearing down cluster...");
         for node in &mut self.nodes {
             let _ = node._child.kill();
             let _ = node._child.wait();
-            println!("[Test Cleanup] Node {} killed.", node.address.to_string());
+            info!("[Test Cleanup] Node {} killed.", node.address.to_string());
         }
-        println!("[Test Cleanup] All temporary node data cleaned up.");
+        info!("[Test Cleanup] All temporary node data cleaned up.");
     }
 }

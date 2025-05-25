@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
 use crate::base_libs::network::_address::Address;
+use tracing::error;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
@@ -45,7 +46,7 @@ impl Config {
         let config_str = match fs::read_to_string(Path::new(config_path)) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("Failed to read config file: {}", e);
+                error!("Failed to read config file: {}", e);
                 return None;
             }
         };
@@ -53,7 +54,7 @@ impl Config {
         let config: Config = match serde_json::from_str(&config_str) {
             Ok(cfg) => cfg,
             Err(e) => {
-                eprintln!("Failed to parse config JSON: {}", e);
+                error!("Failed to parse config JSON: {}", e);
                 return None;
             }
         };
@@ -64,7 +65,7 @@ impl Config {
             }
         }
 
-        eprintln!("No node found for address: {}", address);
+        error!("No node found for address: {}", address);
         None
     }
 
@@ -72,7 +73,7 @@ impl Config {
         let config_str = match fs::read_to_string(Path::new(config_path)) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("Failed to read config file: {}", e);
+                error!("Failed to read config file: {}", e);
                 panic!("Failed to read config file");
             }
         };
@@ -80,7 +81,7 @@ impl Config {
         match serde_json::from_str(&config_str) {
             Ok(cfg) => cfg,
             Err(e) => {
-                eprintln!("Failed to parse config JSON: {}", e);
+                error!("Failed to parse config JSON: {}", e);
                 panic!("Failed to parse config JSON");
             }
         }

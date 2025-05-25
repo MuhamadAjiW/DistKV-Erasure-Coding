@@ -1,4 +1,4 @@
-use tracing::instrument;
+use tracing::{info, instrument, error};
 
 use crate::base_libs::{
     _operation::{BinKV, Operation, OperationType},
@@ -8,7 +8,7 @@ use crate::base_libs::{
 use super::{_node::Node, paxos::_paxos_state::PaxosState};
 
 impl Node {
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn process_request(
         &mut self,
         request: &Operation,
@@ -26,7 +26,7 @@ impl Node {
             }
             OperationType::SET | OperationType::DELETE => match self.state {
                 PaxosState::Follower | PaxosState::Candidate => {
-                    println!(
+                    info!(
                         "[FORWARD] Forwarding request to leader: {}",
                         request.to_string()
                     );
@@ -54,7 +54,7 @@ impl Node {
         response
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn accept_value(&mut self, operation: &Operation, commit_id: u64) -> bool {
         let follower_list: Vec<String> = {
             let followers_guard = self.cluster_list.lock().await;
@@ -88,7 +88,7 @@ impl Node {
         }
 
         if acks < majority {
-            println!("Request failed: Accept broadcast is not accepted by majority");
+            error!("Request failed: Accept broadcast is not accepted by majority");
             return false;
         }
 
@@ -96,11 +96,11 @@ impl Node {
         self.synchronize_log(commit_id - 1).await;
         self.store.transaction_log.append(operation).await;
 
-        println!("Request succeeded: Accept broadcast is accepted by majority");
+        info!("Request succeeded: Accept broadcast is accepted by majority");
         return true;
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub async fn learn_value(&self, node: &Node) -> bool {
         let follower_list: Vec<String> = {
             let followers_guard = node.cluster_list.lock().await;
@@ -111,11 +111,11 @@ impl Node {
         let acks = node.broadcast_accept(&follower_list).await;
 
         if acks < majority {
-            println!("Request failed: Prepare broadcast is not accepted by majority");
+            error!("Request failed: Prepare broadcast is not accepted by majority");
             return false;
         }
 
-        println!("Request succeeded: Accept broadcast is accepted by majority");
+        info!("Request succeeded: Accept broadcast is accepted by majority");
         return true;
     }
 
@@ -124,7 +124,7 @@ impl Node {
         self.commit_id = std::cmp::max(self.commit_id, new_commit_id);
 
         if self.commit_id > old_commit_id {
-            println!(
+            info!(
                 "[ELECTION] Node updated commit ID from {} to {}",
                 old_commit_id, self.commit_id
             );

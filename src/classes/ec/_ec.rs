@@ -1,4 +1,5 @@
 use reed_solomon_erasure::{galois_8::Field, ReedSolomon};
+use tracing::error;
 
 #[derive(Clone)]
 pub struct ECService {
@@ -67,7 +68,7 @@ impl ECService {
         }
 
         if reconstructed_padded_with_len.len() < Self::LENGTH_PREFIX_BYTES {
-            println!(
+            error!(
                 "Reconstructed data length {} is less than length prefix bytes {}",
                 reconstructed_padded_with_len.len(),
                 Self::LENGTH_PREFIX_BYTES
@@ -86,7 +87,7 @@ impl ECService {
         let actual_data_start_index = Self::LENGTH_PREFIX_BYTES;
 
         if original_len + actual_data_start_index > reconstructed_padded_with_len.len() {
-            println!(
+            error!(
                 "Original length {} + actual data start index {} exceeds reconstructed data length {}",
                 original_len,
                 actual_data_start_index,

@@ -6,7 +6,7 @@ use std::{
 
 use actix_web::{web, App, HttpServer};
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
-use tracing::instrument;
+use tracing::{info, instrument, error};
 
 use crate::{
     base_libs::{
@@ -55,9 +55,9 @@ impl Node {
             .collect();
 
         if let Some(index) = index {
-            println!("[INIT] Storage Config: {:?}", config.storage);
-            println!("[INIT] Node Config: {:?}", config.nodes[index]);
-            println!("[INIT] Index: {}", index);
+            info!("[INIT] Storage Config: {:?}", config.storage);
+            info!("[INIT] Node Config: {:?}", config.nodes[index]);
+            info!("[INIT] Index: {}", index);
 
             let db_path = &config.nodes[index].rocks_db.path;
             let memcached_url = format!(
@@ -127,34 +127,34 @@ impl Node {
 
     // Information logging
     pub async fn print_info(&self) {
-        println!("-------------------------------------");
-        println!("[INFO] Node info:");
-        println!("Address: {}", &self.address.to_string());
-        println!("State: {}", &self.state.to_string());
-        println!("Erasure Coding: {}", &self.store.ec.active.to_string());
+        info!("-------------------------------------");
+        info!("[INFO] Node info:");
+        info!("Address: {}", &self.address.to_string());
+        info!("State: {}", &self.state.to_string());
+        info!("Erasure Coding: {}", &self.store.ec.active.to_string());
         if let Some(leader) = &self.leader_address {
-            println!("Leader: {}", &leader.to_string());
+            info!("Leader: {}", &leader.to_string());
         } else {
-            println!("Leader: None");
+            info!("Leader: None");
         }
-        println!("Cluster list: {:?}", &self.cluster_list.lock().await);
-        println!("Cluster index: {}", &self.cluster_index);
-        println!("Request ID: {}", &self.request_id);
-        println!("Commit ID: {}", &self.commit_id);
-        println!("Last heartbeat: {:?}", &self.last_heartbeat.read().await);
-        println!(
+        info!("Cluster list: {:?}", &self.cluster_list.lock().await);
+        info!("Cluster index: {}", &self.cluster_index);
+        info!("Request ID: {}", &self.request_id);
+        info!("Commit ID: {}", &self.commit_id);
+        info!("Last heartbeat: {:?}", &self.last_heartbeat.read().await);
+        info!(
             "Timeout duration: {:?}",
             &self.timeout_duration.read().await
         );
 
-        println!("\nErasure coding configuration:");
-        println!("Shard count: {}", &self.store.ec.data_shard_count);
-        println!("Parity count: {}", &self.store.ec.parity_shard_count);
-        println!("-------------------------------------");
+        info!("\nErasure coding configuration:");
+        info!("Shard count: {}", &self.store.ec.data_shard_count);
+        info!("Parity count: {}", &self.store.ec.parity_shard_count);
+        info!("-------------------------------------");
     }
 
     pub fn run_timer_task(node_arc: Arc<Mutex<Node>>) {
-        println!("[INIT] Starting timer task...");
+        info!("[INIT] Starting timer task...");
         let node_clone = Arc::clone(&node_arc);
 
         tokio::spawn(async move {
@@ -167,7 +167,7 @@ impl Node {
                 )
             };
 
-            println!("[TIMEOUT] Spawning task to check for timeout");
+            info!("[TIMEOUT] Spawning task to check for timeout");
 
             loop {
                 let state = {
@@ -180,7 +180,7 @@ impl Node {
                         let heartbeat_delay = *timeout_duration.read().await / 3;
 
                         tokio::time::sleep(heartbeat_delay).await;
-                        println!("[TIMEOUT] Timeout reached, sending heartbeat...");
+                        info!("[TIMEOUT] Timeout reached, sending heartbeat...");
 
                         {
                             let mut node = node_clone.lock().await;
@@ -220,16 +220,16 @@ impl Node {
         });
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub fn run_tcp_loop(node_arc: Arc<Mutex<Node>>) {
-        println!("[INIT] Starting TCP loop...");
+        info!("[INIT] Starting TCP loop...");
 
         tokio::spawn(async move {
             loop {
                 let socket = {
                     let node = node_arc.lock().await;
                     if !node.running {
-                        println!("[TIMEOUT] Running is false, stopping",);
+                        info!("[TIMEOUT] Running is false, stopping",);
                         break;
                     }
                     node.socket.clone()
@@ -238,7 +238,7 @@ impl Node {
                 let (stream, message) = match listen(&socket).await {
                     Ok(msg) => msg,
                     Err(_) => {
-                        println!("[ERROR] Received bad message on socket, continuing...");
+                        error!("[ERROR] Received bad message on socket, continuing...");
                         continue;
                     }
                 };
@@ -250,7 +250,7 @@ impl Node {
                         commit_id,
                         source,
                     } => {
-                        println!("[REQUEST] Received Heartbeat from {}", source);
+                        info!("[REQUEST] Received Heartbeat from {}", source);
                         {
                             let mut node = node_arc.lock().await;
                             node.handle_heartbeat(&source, stream, epoch, commit_id)
@@ -261,7 +261,7 @@ impl Node {
                         }
                     }
                     PaxosMessage::LeaderVote { epoch, source } => {
-                        println!("[REQUEST] Received LeaderVote from {}", source);
+                        info!("[REQUEST] Received LeaderVote from {}", source);
                         {
                             let mut node = node_arc.lock().await;
                             node.handle_leader_vote(&source, stream, epoch).await;
@@ -274,7 +274,7 @@ impl Node {
                         commit_id,
                         source,
                     } => {
-                        println!("[REQUEST] Received LeaderDeclaration from {}", source);
+                        info!("[REQUEST] Received LeaderDeclaration from {}", source);
                         {
                             let mut node = node_arc.lock().await;
                             node.handle_leader_declaration(&source, stream, epoch, commit_id)
@@ -290,7 +290,7 @@ impl Node {
                         request_id,
                         source,
                     } => {
-                        println!(
+                        info!(
                             "[REQUEST] Received ElectionRequest from {}, request id is {}",
                             source, request_id
                         );
@@ -309,7 +309,7 @@ impl Node {
                         operation,
                         source,
                     } => {
-                        println!("[REQUEST] Received AcceptRequest from {}", source);
+                        info!("[REQUEST] Received AcceptRequest from {}", source);
                         {
                             let mut node = node_arc.lock().await;
                             _ = node
@@ -328,7 +328,7 @@ impl Node {
                         commit_id,
                         source,
                     } => {
-                        println!("[REQUEST] Received LearnRequest from {}", source);
+                        info!("[REQUEST] Received LearnRequest from {}", source);
                         {
                             let mut node = node_arc.lock().await;
                             _ = node
@@ -344,7 +344,7 @@ impl Node {
                         request_id,
                         source,
                     } => {
-                        println!("[REQUEST] Received FollowerAck from {}", source);
+                        info!("[REQUEST] Received FollowerAck from {}", source);
                         {
                             let node = node_arc.lock().await;
                             node.handle_follower_ack(&source, stream, request_id).await;
@@ -355,7 +355,7 @@ impl Node {
 
                     // Client request
                     PaxosMessage::ClientRequest { operation, source } => {
-                        println!("[REQUEST] Received ClientRequest from {}", source);
+                        info!("[REQUEST] Received ClientRequest from {}", source);
                         {
                             let mut node = node_arc.lock().await;
                             node.handle_client_request(&source, stream, operation).await;
@@ -365,7 +365,7 @@ impl Node {
                     }
 
                     PaxosMessage::RecoveryRequest { key, source } => {
-                        println!("[REQUEST] Received RecoveryRequest from {}", source);
+                        info!("[REQUEST] Received RecoveryRequest from {}", source);
                         {
                             let node = node_arc.lock().await;
                             node.handle_recovery_request(&source, stream, &key).await;
@@ -375,7 +375,7 @@ impl Node {
                     }
 
                     _ => {
-                        println!(
+                        error!(
                             "[REQUEST] Received invalid message from {:?}",
                             stream.peer_addr()
                         );
@@ -385,9 +385,9 @@ impl Node {
         });
     }
 
-    #[instrument(skip_all)]
+    #[instrument(level = "trace", skip_all)]
     pub fn run_http_loop(node_arc: Arc<Mutex<Node>>) {
-        println!("[INIT] Starting HTTP loop...");
+        info!("[INIT] Starting HTTP loop...");
 
         // Actix web is not compatible with tokio spawn
         std::thread::spawn(move || {
@@ -399,7 +399,7 @@ impl Node {
                     node.http_address.clone()
                 };
 
-                println!(
+                info!(
                     "[INIT] Starting HTTP server on {}:{}",
                     address.ip, address.port
                 );
@@ -428,7 +428,7 @@ impl Node {
     }
 
     pub async fn run(node_arc: Arc<Mutex<Node>>) {
-        println!("[INIT] Running node...");
+        info!("[INIT] Running node...");
 
         Node::initialize(&node_arc).await;
 
@@ -436,18 +436,18 @@ impl Node {
         Node::run_tcp_loop(node_arc.clone());
         Node::run_http_loop(node_arc.clone());
 
-        println!("[INIT] Node is now running");
+        info!("[INIT] Node is now running");
 
         tokio::signal::ctrl_c()
             .await
             .expect("[ERROR] Failed to listen for Ctrl+C signal");
 
-        println!("[INIT] Ctrl+C signal received, stopping node...");
+        info!("[INIT] Ctrl+C signal received, stopping node...");
 
         {
             let mut node = node_arc.lock().await;
             node.running = false;
-            println!("[INIT] Node is stopping...");
+            info!("[INIT] Node is stopping...");
 
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
