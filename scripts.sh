@@ -224,6 +224,7 @@ run_all() {
     local config_path="./etc/config.json"
     local file_output=""
     local trace=""
+    local continue=""
 
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
@@ -239,6 +240,10 @@ run_all() {
                 trace="--trace"
                 shift 1
                 ;;
+            --continue)
+                continue="--continue"
+                shift 1
+                ;;
             *)
                 echo "Unknown option: $1"
                 echo "Usage: run_node --addr <address> --config_file <path> [--file_output] [--trace]"
@@ -249,7 +254,17 @@ run_all() {
 
     validate_config "$config_path"
 
+    
+
     echo "Starting all services based on config: ${config_path}"
+    if [ -n "$continue" ]; then
+        echo "Continuing with existing configuration."
+    else
+        echo "Starting fresh with new configuration."
+        echo "Cleaning up previous node persistent data and logs."
+        clean
+    fi
+    
     if [ -n "$trace" ]; then
         echo "Global tracing enabled for all nodes."
     else
