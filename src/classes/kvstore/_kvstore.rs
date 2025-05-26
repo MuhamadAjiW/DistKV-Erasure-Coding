@@ -30,7 +30,7 @@ impl KvStoreModule {
         self.transaction_log.initialize().await;
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_from_cluster(
         &self,
         key: &String,

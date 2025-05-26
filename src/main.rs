@@ -73,7 +73,7 @@ async fn main() -> Result<(), io::Error> {
         Commands::Node { addr, conf, trace } => {
             let subscriber = if *trace {
                 tracing_subscriber::fmt()
-                    .with_max_level(tracing::Level::TRACE)
+                    .with_max_level(tracing::Level::DEBUG)
                     .with_file(true)
                     .with_target(false)
                     .with_ansi(false)

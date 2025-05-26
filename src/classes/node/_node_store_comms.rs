@@ -26,7 +26,7 @@ use crate::{
 use super::_node::Node;
 
 impl Node {
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn handle_client_request(
         &mut self,
         _src_addr: &String,
@@ -60,7 +60,7 @@ impl Node {
         _ = reply_string(result.as_str(), stream).await;
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn handle_recovery_request(&self, src_addr: &String, stream: TcpStream, key: &str) {
         match self.store.persistent.get(key) {
             Some(value) => {
@@ -81,7 +81,7 @@ impl Node {
         }
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn broadcast_accept(&self, follower_list: &Vec<String>) -> usize {
         if follower_list.is_empty() {
             error!("No followers registered. Cannot proceed.");
@@ -153,7 +153,7 @@ impl Node {
         acks
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn broadcast_accept_ec(
         &self,
         follower_list: &Vec<String>,
@@ -260,7 +260,7 @@ impl Node {
         acks
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn broadcast_accept_replication(
         &self,
         follower_list: &Vec<String>,
@@ -349,7 +349,7 @@ impl Node {
         acks
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn broadcast_get_shards(
         &self,
         follower_list: &Vec<String>,
@@ -447,7 +447,7 @@ impl Node {
         Some(recovery_shards.clone())
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn request_replicated_data(
         &self,
         follower_addr: &String,

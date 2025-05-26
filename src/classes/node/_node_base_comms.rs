@@ -7,7 +7,7 @@ use crate::base_libs::{_paxos_types::PaxosMessage, network::_messages::send_mess
 use super::_node::Node;
 
 impl Node {
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn forward_to_leader(&self, message: PaxosMessage) {
         let leader_addr = match &self.leader_address {
             Some(addr) => addr.to_string(),
@@ -21,7 +21,7 @@ impl Node {
         _ = send_message(message, leader_addr).await;
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn broadcast_message(&self, message: PaxosMessage) {
         let cluster_list = self.cluster_list.lock().await;
         let addresses: Vec<String> = cluster_list.iter().cloned().collect();

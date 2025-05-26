@@ -6,7 +6,7 @@ use std::{
 
 use actix_web::{web, App, HttpServer};
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
-use tracing::{info, instrument, error};
+use tracing::{error, info, instrument};
 
 use crate::{
     base_libs::{
@@ -220,7 +220,7 @@ impl Node {
         });
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn run_tcp_loop(node_arc: Arc<Mutex<Node>>) {
         info!("[INIT] Starting TCP loop...");
 
@@ -385,7 +385,7 @@ impl Node {
         });
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn run_http_loop(node_arc: Arc<Mutex<Node>>) {
         info!("[INIT] Starting HTTP loop...");
 

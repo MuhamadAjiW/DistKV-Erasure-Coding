@@ -14,14 +14,14 @@ impl KvMemory {
         };
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn set(&self, key: &str, value: &str) {
         self.memcached
             .set(key, value, 0)
             .expect("Failed to set memcached");
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn get(&self, key: &str) -> Option<String> {
         if let Ok(Some(value)) = self.memcached.get(key) {
             return Some(value);
@@ -30,14 +30,14 @@ impl KvMemory {
         }
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn remove(&self, key: &str) -> () {
         self.memcached
             .delete(key)
             .expect("Failed to delete from memcached");
     }
 
-    #[instrument(level = "trace", skip_all)]
+    #[instrument(level = "debug", skip_all)]
     pub fn process_request(&self, request: &Operation) -> Option<String> {
         let mut response: Option<String> = None;
 
