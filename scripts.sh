@@ -307,7 +307,7 @@ bench_system() {
         for vus_value in "${virtual_users[@]}"; do
             for size_value in "${size[@]}"; do
                 echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "BASE_URL=$base_url_env" ./benchmark/script.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.txt"
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "BASE_URL=$base_url_env" --quiet ./benchmark/script.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
             done
         done
     else
@@ -321,7 +321,7 @@ bench_baseline() {
     for vus_value in "${virtual_users[@]}"; do
         for size_value in "${size[@]}"; do
             echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}"
-            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ./benchmark/script.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.txt"
+            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.json"
         done
     done
 }

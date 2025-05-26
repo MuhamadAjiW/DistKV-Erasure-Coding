@@ -45,3 +45,42 @@ export default function () {
 
     sleep(1);
 }
+
+export function handleSummary(data) {
+    const summaryOutput = {
+        testRunDetails: {
+            timestamp: new Date().toISOString(),
+            scriptOptions: options, 
+            environmentVariables: {
+                BASE_URL: BASE_URL,
+                VUS: __ENV.VUS || VUS.toString(), 
+                SIZE: __ENV.SIZE || SIZE.toString(),
+                DURATION: __ENV.DURATION || DURATION,
+            },
+        },
+        metrics: {}, // Placeholder for metrics
+    };
+
+    for (const metricName in data.metrics) {
+        if (data.metrics.hasOwnProperty(metricName)) {
+            const metric = data.metrics[metricName];
+            summaryOutput.metrics[metricName] = {
+                type: metric.type,
+                contains: metric.contains,
+                values: metric.values, // Contains avg, min, max, p90, p95, etc. for trends/rates
+            };
+        }
+    }
+    
+    if (data.metrics.checks) {
+        summaryOutput.metrics.checks.summary = {
+            passes: data.metrics.checks.values.passes,
+            fails: data.metrics.checks.values.fails,
+            pass_rate: (data.metrics.checks.values.passes / (data.metrics.checks.values.passes + data.metrics.checks.values.fails) * 100).toFixed(2) + '%',
+        };
+    }
+
+    return {
+        'stdout': JSON.stringify(summaryOutput, null, 2),
+    };
+}
