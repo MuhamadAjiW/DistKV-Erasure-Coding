@@ -338,7 +338,7 @@ elif [ "$1" == "run_all" ]; then
     run_all "$@"
 elif [ "$1" == "stop_all" ]; then
     kill_all_screen_session
-    sudo pkill -f "memcached.*-l 127.0.0.1"
+    sudo pkill memcached
     echo "Attempted to kill Memcached processes."
 elif [ "$1" == "bench_system" ]; then
     bench_system "$2"
