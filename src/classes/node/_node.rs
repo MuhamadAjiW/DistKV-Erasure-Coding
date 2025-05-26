@@ -24,6 +24,7 @@ pub struct Node {
 
     // HTTP Interface
     pub http_address: Address,
+    pub http_max_payload: usize,
 
     // Internode communication
     pub address: Address,
@@ -81,6 +82,7 @@ impl Node {
             return Node::new(
                 address,
                 Address::new(&config.nodes[index].ip, config.nodes[index].http_port),
+                config.storage.max_payload_size,
                 cluster_list,
                 index,
                 store,
@@ -94,6 +96,7 @@ impl Node {
     pub async fn new(
         address: Address,
         http_address: Address,
+        http_max_payload: usize,
         cluster_list: Vec<String>,
         cluster_index: usize,
         store: KvStoreModule,
@@ -106,6 +109,7 @@ impl Node {
 
         let node = Node {
             http_address,
+            http_max_payload,
             address,
             socket,
             running: false,
@@ -394,9 +398,9 @@ impl Node {
             let sys = actix_web::rt::System::new();
 
             sys.block_on(async move {
-                let address = {
+                let (address, max_payload) = {
                     let node = node_arc.lock().await;
-                    node.http_address.clone()
+                    (node.http_address.clone(), node.http_max_payload.clone())
                 };
 
                 info!(
@@ -407,6 +411,8 @@ impl Node {
                 HttpServer::new(move || {
                     App::new()
                         .app_data(web::Data::new(node_arc.clone()))
+                        .app_data(web::PayloadConfig::new(max_payload))
+                        .app_data(web::JsonConfig::default().limit(max_payload))
                         .route("/", web::get().to(Node::http_healthcheck))
                         .route("/kv/range", web::post().to(Node::http_get))
                         .route("/kv/put", web::post().to(Node::http_put))

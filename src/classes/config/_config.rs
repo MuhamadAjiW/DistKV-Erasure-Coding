@@ -15,6 +15,7 @@ pub struct StorageConfig {
     pub erasure_coding: bool,
     pub shard_count: usize,
     pub parity_count: usize,
+    pub max_payload_size: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

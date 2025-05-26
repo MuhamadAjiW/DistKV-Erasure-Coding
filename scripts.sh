@@ -161,7 +161,7 @@ clean() {
 
 run_memcached() {
     local config_path="${1:-./etc/config.json}"
-    local memory="${2:-64}"
+    local memory="${2:-4096}"
     local PIDS=()
 
     validate_config "$config_path"
@@ -202,7 +202,7 @@ run_memcached() {
             continue
         fi
 
-        memcached -d -m "$memory" -l "$ip" -p "$port"
+        memcached -d -m "$memory" -I 1024m -l "$ip" -p "$port"
         sleep 1
 
         PID=$(pgrep -f "memcached.*-l $ip -p $port")
@@ -293,11 +293,11 @@ run_all() {
 
 
 virtual_users=(
-    250 500 1000
+    1
 )
 
 size=(
-    10240
+    102400
 )
 
 bench_system() {
