@@ -104,7 +104,7 @@ impl Node {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
 
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            5000 + (rand::random::<u64>() % 100) * 50,
+            15000 + (rand::random::<u64>() % 100) * 50,
         )));
 
         let node = Node {
