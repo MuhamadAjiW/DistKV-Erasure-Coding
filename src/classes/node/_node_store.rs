@@ -26,10 +26,7 @@ impl Node {
             }
             OperationType::SET | OperationType::DELETE => match self.state {
                 PaxosState::Follower | PaxosState::Candidate => {
-                    info!(
-                        "[FORWARD] Forwarding request to leader: {}",
-                        request.to_string()
-                    );
+                    info!("[FORWARD] Forwarding request to leader");
                     self.forward_to_leader(PaxosMessage::ClientRequest {
                         operation: request.clone(),
                         source: self.address.to_string(),
