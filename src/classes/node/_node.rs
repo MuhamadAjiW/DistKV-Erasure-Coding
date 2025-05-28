@@ -6,7 +6,7 @@ use std::{
 
 use actix_web::{web, App, HttpServer};
 use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     base_libs::{
@@ -104,7 +104,7 @@ impl Node {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
 
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            15000 + (rand::random::<u64>() % 100) * 50,
+            15000 + (rand::random::<u64>() % 200) * 50,
         )));
 
         let node = Node {
@@ -170,6 +170,8 @@ impl Node {
                     Arc::clone(&node.timeout_duration),
                 )
             };
+            let timeout = *timeout_duration.read().await;
+            let heartbeat_delay = timeout / 3;
 
             info!("[TIMEOUT] Spawning task to check for timeout");
 
@@ -181,8 +183,6 @@ impl Node {
 
                 match state {
                     PaxosState::Leader => {
-                        let heartbeat_delay = *timeout_duration.read().await / 3;
-
                         tokio::time::sleep(heartbeat_delay).await;
                         info!("[TIMEOUT] Timeout reached, sending heartbeat...");
 
@@ -194,13 +194,13 @@ impl Node {
                         }
                     }
                     _ => {
-                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        tokio::time::sleep(timeout).await;
 
                         let last = *last_heartbeat.read().await;
-                        let timeout = *timeout_duration.read().await;
 
                         if last.elapsed() > timeout {
                             {
+                                warn!("[TIMEOUT] Timeout reached, starting leader election. Time since last heartbeat: {:?}, timeout is {:?}", last.elapsed(), timeout);
                                 let mut node = node_clone.lock().await;
                                 node.state = PaxosState::Candidate;
                                 let _ = node.start_leader_election().await;
