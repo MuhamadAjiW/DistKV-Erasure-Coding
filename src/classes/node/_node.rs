@@ -62,7 +62,7 @@ impl Node {
 
             let db_path = &config.nodes[index].rocks_db.path;
             let memcached_url = format!(
-                "memcache://{}:{}",
+                "tcp://{}:{}",
                 config.nodes[index].memcached.ip, config.nodes[index].memcached.port
             );
             let tlog_path = &config.nodes[index].transaction_log;
@@ -77,7 +77,8 @@ impl Node {
                 memcached_url.as_str(),
                 tlog_path.as_str(),
                 ec,
-            );
+            )
+            .await;
 
             return Node::new(
                 address,

@@ -143,8 +143,8 @@ impl Node {
         self.store.transaction_log.append(operation).await;
         self.store.persistent.process_request(operation);
 
-        if !self.store.memory.get(&operation.kv.key).is_none() {
-            self.store.memory.remove(&operation.kv.key);
+        if !self.store.memory.get(&operation.kv.key).await.is_none() {
+            self.store.memory.remove(&operation.kv.key).await;
         }
 
         info!("Follower received leader accept message from leader",);

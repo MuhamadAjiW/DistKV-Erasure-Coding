@@ -17,10 +17,15 @@ pub struct KvStoreModule {
 }
 
 impl KvStoreModule {
-    pub fn new(db_path: &str, memcached_url: &str, tlog_path: &str, ec: Arc<ECService>) -> Self {
+    pub async fn new(
+        db_path: &str,
+        memcached_url: &str,
+        tlog_path: &str,
+        ec: Arc<ECService>,
+    ) -> Self {
         KvStoreModule {
             persistent: KvPersistent::new(db_path),
-            memory: KvMemory::new(memcached_url),
+            memory: KvMemory::new(memcached_url).await,
             transaction_log: KvTransactionLog::new(tlog_path),
             ec,
         }
@@ -58,7 +63,7 @@ impl KvStoreModule {
                                 let str_value = String::from_utf8(value.clone())
                                     .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
 
-                                self.memory.set(key, &str_value);
+                                self.memory.set(key, &value).await;
                                 self.persistent.set(key, &value);
                                 return Ok(Some(str_value));
                             }
@@ -105,10 +110,10 @@ impl KvStoreModule {
             }
         };
 
+        self.memory.set(key, &reconstructed_data).await;
+
         result = String::from_utf8(reconstructed_data)
             .map_err(|_e| reed_solomon_erasure::Error::InvalidIndex)?;
-
-        self.memory.set(key, &result);
 
         Ok(Some(result))
     }

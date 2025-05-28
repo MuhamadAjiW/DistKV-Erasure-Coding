@@ -18,7 +18,7 @@ impl Node {
 
         match request.op_type {
             OperationType::GET => {
-                response = self.store.memory.get(&request.kv.key);
+                response = self.store.memory.get(&request.kv.key).await;
                 if response.is_none() {
                     let recovered = self.store.get_from_cluster(&request.kv.key, self).await;
                     response = recovered.unwrap_or_default();
@@ -62,7 +62,7 @@ impl Node {
         let acks;
 
         // _TODO: Delete operation is still broken here
-        self.store.memory.process_request(&operation);
+        self.store.memory.process_request(&operation).await;
         if self.store.ec.active {
             let ec = self.store.ec.clone();
             let encoded_shard = ec.encode(&operation.kv.value);
