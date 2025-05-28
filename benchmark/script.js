@@ -58,13 +58,14 @@ export function handleSummary(data) {
                 DURATION: __ENV.DURATION || DURATION,
             },
         },
-        metrics: {}, // Placeholder for metrics
+        summary: {},
+        details: {}
     };
 
     for (const metricName in data.metrics) {
         if (data.metrics.hasOwnProperty(metricName)) {
             const metric = data.metrics[metricName];
-            summaryOutput.metrics[metricName] = {
+            summaryOutput.details[metricName] = {
                 type: metric.type,
                 contains: metric.contains,
                 values: metric.values, // Contains avg, min, max, p90, p95, etc. for trends/rates
@@ -72,12 +73,12 @@ export function handleSummary(data) {
         }
     }
     
-    if (data.metrics.checks) {
-        summaryOutput.metrics.checks.summary = {
-            passes: data.metrics.checks.values.passes,
-            fails: data.metrics.checks.values.fails,
-            pass_rate: (data.metrics.checks.values.passes / (data.metrics.checks.values.passes + data.metrics.checks.values.fails) * 100).toFixed(2) + '%',
-        };
+    if (data.metrics['http_req_duration{expected_response:true}']) {
+        summaryOutput.summary.success_performance = data.metrics['http_req_duration{expected_response:true}'].values;
+    }
+    
+    if (data.metrics.http_reqs) {
+        summaryOutput.summary.reqs = data.metrics.http_reqs.values;
     }
 
     return {
