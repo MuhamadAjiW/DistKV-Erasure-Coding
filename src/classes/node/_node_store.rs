@@ -54,7 +54,7 @@ impl Node {
     #[instrument(level = "debug", skip_all)]
     pub async fn accept_value(&mut self, operation: &Operation, commit_id: u64) -> bool {
         let follower_list: Vec<String> = {
-            let followers_guard = self.cluster_list.lock().await;
+            let followers_guard = self.cluster_list.read().await;
             followers_guard.iter().cloned().collect()
         };
 
@@ -100,7 +100,7 @@ impl Node {
     #[instrument(level = "debug", skip_all)]
     pub async fn learn_value(&self, node: &Node) -> bool {
         let follower_list: Vec<String> = {
-            let followers_guard = node.cluster_list.lock().await;
+            let followers_guard = node.cluster_list.read().await;
             followers_guard.iter().cloned().collect()
         };
 

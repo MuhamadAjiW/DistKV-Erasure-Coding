@@ -23,7 +23,7 @@ impl Node {
 
     #[instrument(level = "debug", skip_all)]
     pub async fn broadcast_message(&self, message: PaxosMessage) {
-        let cluster_list = self.cluster_list.lock().await;
+        let cluster_list = self.cluster_list.read().await;
         let addresses: Vec<String> = cluster_list.iter().cloned().collect();
         drop(cluster_list);
 

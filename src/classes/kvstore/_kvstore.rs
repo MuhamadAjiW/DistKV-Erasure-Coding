@@ -48,7 +48,7 @@ impl KvStoreModule {
                 }
                 None => {
                     let follower_list: Vec<String> = {
-                        let followers_guard = node.cluster_list.lock().await;
+                        let followers_guard = node.cluster_list.read().await;
                         followers_guard.iter().cloned().collect()
                     };
 
@@ -81,7 +81,7 @@ impl KvStoreModule {
         let self_shard: Option<Vec<u8>> = self.persistent.get(key);
 
         let follower_list: Vec<String> = {
-            let followers_guard = node.cluster_list.lock().await;
+            let followers_guard = node.cluster_list.read().await;
             followers_guard.iter().cloned().collect()
         };
 

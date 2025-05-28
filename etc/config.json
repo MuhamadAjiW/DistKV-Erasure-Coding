@@ -1,6 +1,6 @@
 {
   "storage": {
-    "erasure_coding": false,
+    "erasure_coding": true,
     "shard_count": 2,
     "parity_count": 3,
     "max_payload_size": 1073741824

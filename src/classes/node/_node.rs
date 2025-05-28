@@ -5,7 +5,7 @@ use std::{
 };
 
 use actix_web::{web, App, HttpServer};
-use tokio::{net::TcpListener, sync::Mutex, sync::RwLock, time::Instant};
+use tokio::{net::TcpListener, sync::RwLock, time::Instant};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
@@ -32,7 +32,7 @@ pub struct Node {
 
     // Paxos related attributes
     pub leader_address: Option<Address>,
-    pub cluster_list: Arc<Mutex<Vec<String>>>,
+    pub cluster_list: Arc<RwLock<Vec<String>>>,
     pub cluster_index: usize,
     pub state: PaxosState,
     pub epoch: u64,
@@ -114,7 +114,7 @@ impl Node {
             socket,
             running: false,
             leader_address: None,
-            cluster_list: Arc::new(Mutex::new(cluster_list)),
+            cluster_list: Arc::new(RwLock::new(cluster_list)),
             cluster_index,
             state: PaxosState::Follower,
             epoch: 0,
@@ -141,7 +141,7 @@ impl Node {
         } else {
             info!("Leader: None");
         }
-        info!("Cluster list: {:?}", &self.cluster_list.lock().await);
+        info!("Cluster list: {:?}", &self.cluster_list.read().await);
         info!("Cluster index: {}", &self.cluster_index);
         info!("Request ID: {}", &self.request_id);
         info!("Commit ID: {}", &self.commit_id);
@@ -157,14 +157,13 @@ impl Node {
         info!("-------------------------------------");
     }
 
-    pub fn run_timer_task(node_arc: Arc<Mutex<Node>>) {
+    pub fn run_timer_task(node_arc: Arc<RwLock<Node>>) {
         info!("[INIT] Starting timer task...");
         let node_clone = Arc::clone(&node_arc);
 
         tokio::spawn(async move {
             let (last_heartbeat, timeout_duration) = {
-                let mut node = node_arc.lock().await;
-                node.running = true;
+                let node = node_arc.read().await;
                 (
                     Arc::clone(&node.last_heartbeat),
                     Arc::clone(&node.timeout_duration),
@@ -177,7 +176,7 @@ impl Node {
 
             loop {
                 let state = {
-                    let node = node_clone.lock().await;
+                    let node = node_clone.read().await;
                     node.state
                 };
 
@@ -187,7 +186,7 @@ impl Node {
                         info!("[TIMEOUT] Timeout reached, sending heartbeat...");
 
                         {
-                            let mut node = node_clone.lock().await;
+                            let mut node = node_clone.write().await;
                             node.vote_count
                                 .store(0, std::sync::atomic::Ordering::Relaxed);
                             let _ = node.send_heartbeat().await;
@@ -201,7 +200,7 @@ impl Node {
                         if last.elapsed() > timeout {
                             {
                                 warn!("[TIMEOUT] Timeout reached, starting leader election. Time since last heartbeat: {:?}, timeout is {:?}", last.elapsed(), timeout);
-                                let mut node = node_clone.lock().await;
+                                let mut node = node_clone.write().await;
                                 node.state = PaxosState::Candidate;
                                 let _ = node.start_leader_election().await;
                             }
@@ -211,7 +210,7 @@ impl Node {
                         }
 
                         let running = {
-                            let node = node_clone.lock().await;
+                            let node = node_clone.read().await;
                             node.running
                         };
 
@@ -225,13 +224,13 @@ impl Node {
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub fn run_tcp_loop(node_arc: Arc<Mutex<Node>>) {
+    pub fn run_tcp_loop(node_arc: Arc<RwLock<Node>>) {
         info!("[INIT] Starting TCP loop...");
 
         tokio::spawn(async move {
             loop {
                 let socket = {
-                    let node = node_arc.lock().await;
+                    let node = node_arc.read().await;
                     if !node.running {
                         info!("[TIMEOUT] Running is false, stopping",);
                         break;
@@ -256,7 +255,7 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received Heartbeat from {}", source);
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             node.handle_heartbeat(&source, stream, epoch, commit_id)
                                 .await;
 
@@ -267,7 +266,7 @@ impl Node {
                     PaxosMessage::LeaderVote { epoch, source } => {
                         info!("[REQUEST] Received LeaderVote from {}", source);
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             node.handle_leader_vote(&source, stream, epoch).await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
@@ -280,7 +279,7 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received LeaderDeclaration from {}", source);
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             node.handle_leader_declaration(&source, stream, epoch, commit_id)
                                 .await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
@@ -299,7 +298,7 @@ impl Node {
                             source, request_id
                         );
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             node.handle_leader_request(&source, stream, epoch, request_id)
                                 .await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
@@ -315,7 +314,7 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received AcceptRequest from {}", source);
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             _ = node
                                 .handle_leader_accept(
                                     &source, stream, epoch, request_id, &operation,
@@ -334,7 +333,7 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received LearnRequest from {}", source);
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             _ = node
                                 .handle_leader_learn(&source, stream, epoch, commit_id)
                                 .await;
@@ -350,7 +349,7 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received FollowerAck from {}", source);
                         {
-                            let node = node_arc.lock().await;
+                            let node = node_arc.write().await;
                             node.handle_follower_ack(&source, stream, request_id).await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
@@ -361,7 +360,7 @@ impl Node {
                     PaxosMessage::ClientRequest { operation, source } => {
                         info!("[REQUEST] Received ClientRequest from {}", source);
                         {
-                            let mut node = node_arc.lock().await;
+                            let mut node = node_arc.write().await;
                             node.handle_client_request(&source, stream, operation).await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
@@ -371,7 +370,7 @@ impl Node {
                     PaxosMessage::RecoveryRequest { key, source } => {
                         info!("[REQUEST] Received RecoveryRequest from {}", source);
                         {
-                            let node = node_arc.lock().await;
+                            let node = node_arc.read().await;
                             node.handle_recovery_request(&source, stream, &key).await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
@@ -390,7 +389,7 @@ impl Node {
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub fn run_http_loop(node_arc: Arc<Mutex<Node>>) {
+    pub fn run_http_loop(node_arc: Arc<RwLock<Node>>) {
         info!("[INIT] Starting HTTP loop...");
 
         // Actix web is not compatible with tokio spawn
@@ -399,7 +398,7 @@ impl Node {
 
             sys.block_on(async move {
                 let (address, max_payload) = {
-                    let node = node_arc.lock().await;
+                    let node = node_arc.read().await;
                     (node.http_address.clone(), node.http_max_payload.clone())
                 };
 
@@ -427,13 +426,14 @@ impl Node {
         });
     }
 
-    pub async fn initialize(node_arc: &Arc<Mutex<Node>>) {
-        let mut node = node_arc.lock().await;
+    pub async fn initialize(node_arc: &Arc<RwLock<Node>>) {
+        let mut node = node_arc.write().await;
+        node.running = true;
         node.store.initialize().await;
         node.print_info().await;
     }
 
-    pub async fn run(node_arc: Arc<Mutex<Node>>) {
+    pub async fn run(node_arc: Arc<RwLock<Node>>) {
         info!("[INIT] Running node...");
 
         Node::initialize(&node_arc).await;
@@ -451,7 +451,7 @@ impl Node {
         info!("[INIT] Ctrl+C signal received, stopping node...");
 
         {
-            let mut node = node_arc.lock().await;
+            let mut node = node_arc.write().await;
             node.running = false;
             info!("[INIT] Node is stopping...");
 

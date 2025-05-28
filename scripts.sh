@@ -203,7 +203,7 @@ run_memcached() {
         fi
 
         memcached -d -m "$memory" -I 1024m -l "$ip" -p "$port"
-        sleep 1
+        sleep 2
 
         PID=$(pgrep -f "memcached.*-l $ip -p $port")
         if [ -n "$PID" ]; then
@@ -272,7 +272,7 @@ run_all() {
     fi
 
     start_terminal "./scripts.sh run_memcached ${config_path}" "memcached-manager"
-    sleep 2
+    sleep 15
 
     local node_count
     node_count=$(jq -r '.nodes | length' "$config_path")
@@ -293,11 +293,12 @@ run_all() {
 
 
 virtual_users=(
-    1 5 10 25 50 100
+    # 1 5 10 25 50 100
+    500 
 )
 
 size=(
-    1 100 10000 1000000 10000000 100000000
+    1
 )
 
 bench_system() {

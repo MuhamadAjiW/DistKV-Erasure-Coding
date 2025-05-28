@@ -191,7 +191,7 @@ impl Node {
             src_addr, epoch
         );
 
-        let quorum = self.cluster_list.lock().await.len() / 2;
+        let quorum = self.cluster_list.read().await.len() / 2;
 
         if self.vote_count.load(std::sync::atomic::Ordering::SeqCst) > quorum {
             info!("[ELECTION] Received quorum votes, declaring leader");

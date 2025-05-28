@@ -11,7 +11,7 @@ use distkv::{
     },
     classes::node::_node::Node,
 };
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tracing::{error, info, instrument};
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -96,7 +96,7 @@ async fn main() -> Result<(), io::Error> {
             let node = Node::from_config(address, conf).await;
             info!("[INIT] Node started with address: {}", &node.address);
 
-            let node_arc = Arc::new(Mutex::new(node));
+            let node_arc = Arc::new(RwLock::new(node));
             Node::run(node_arc).await;
         }
         Commands::Client {
