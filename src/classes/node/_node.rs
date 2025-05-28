@@ -253,9 +253,12 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received Heartbeat from {}", source);
                         {
-                            let mut node = node_arc.write().await;
+                            let node = node_arc.read().await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
+                        }
+                        {
+                            let mut node = node_arc.write().await;
                             node.handle_heartbeat(&source, stream, epoch, commit_id)
                                 .await;
                         }
@@ -263,9 +266,12 @@ impl Node {
                     PaxosMessage::LeaderVote { epoch, source } => {
                         info!("[REQUEST] Received LeaderVote from {}", source);
                         {
-                            let mut node = node_arc.write().await;
+                            let node = node_arc.read().await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
+                        }
+                        {
+                            let mut node = node_arc.write().await;
                             node.handle_leader_vote(&source, stream, epoch).await;
                         }
                     }
@@ -276,9 +282,12 @@ impl Node {
                     } => {
                         info!("[REQUEST] Received LeaderDeclaration from {}", source);
                         {
-                            let mut node = node_arc.write().await;
+                            let node = node_arc.read().await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
+                        }
+                        {
+                            let mut node = node_arc.write().await;
                             node.handle_leader_declaration(&source, stream, epoch, commit_id)
                                 .await;
                         }
@@ -294,9 +303,12 @@ impl Node {
                             source, request_id
                         );
                         {
-                            let mut node = node_arc.write().await;
+                            let node = node_arc.read().await;
                             let mut last_heartbeat_mut = node.last_heartbeat.write().await;
                             *last_heartbeat_mut = Instant::now();
+                        }
+                        {
+                            let mut node = node_arc.write().await;
                             node.handle_leader_request(&source, stream, epoch, request_id)
                                 .await;
                         }
