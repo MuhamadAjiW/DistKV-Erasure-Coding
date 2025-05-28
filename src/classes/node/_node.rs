@@ -39,7 +39,7 @@ pub struct Node {
     pub request_id: u64,
     pub commit_id: u64,
     pub last_heartbeat: Arc<RwLock<Instant>>,
-    pub timeout_duration: Arc<RwLock<Duration>>,
+    pub timeout_duration: Arc<Duration>,
     pub vote_count: AtomicUsize,
 
     // Application attributes
@@ -103,9 +103,9 @@ impl Node {
     ) -> Self {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
 
-        let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            5000 + (rand::random::<u64>() % 20000),
-        )));
+        let timeout_duration = Arc::new(Duration::from_millis(
+            1000 + (rand::random::<u64>() % 20000),
+        ));
 
         let node = Node {
             http_address,
@@ -146,10 +146,7 @@ impl Node {
         info!("Request ID: {}", &self.request_id);
         info!("Commit ID: {}", &self.commit_id);
         info!("Last heartbeat: {:?}", &self.last_heartbeat.read().await);
-        info!(
-            "Timeout duration: {:?}",
-            &self.timeout_duration.read().await
-        );
+        info!("Timeout duration: {:?}", &self.timeout_duration);
 
         info!("\nErasure coding configuration:");
         info!("Shard count: {}", &self.store.ec.data_shard_count);
@@ -169,7 +166,7 @@ impl Node {
                     Arc::clone(&node.timeout_duration),
                 )
             };
-            let timeout = *timeout_duration.read().await;
+            let timeout = *timeout_duration;
             let heartbeat_delay = timeout / 3;
 
             info!("[TIMEOUT] Spawning task to check for timeout");
