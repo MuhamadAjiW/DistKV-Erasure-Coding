@@ -362,7 +362,9 @@ impl Node {
             ec.data_shard_count
                 + ec.parity_shard_count
         ]));
-        recovery_shards.write().await[self.cluster_index] = own_shard.clone();
+        {
+            recovery_shards.write().await[self.cluster_index] = own_shard.clone();
+        }
 
         let size = follower_list.len();
         let response_count = Arc::new(AtomicUsize::new(1));
@@ -409,8 +411,10 @@ impl Node {
                         } = ack
                         {
                             if index < size {
-                                let mut shards = recovery_shards.write().await;
-                                shards[index] = Some(payload);
+                                {
+                                    let mut shards = recovery_shards.write().await;
+                                    shards[index] = Some(payload);
+                                }
 
                                 let count = response_count.fetch_add(1, Ordering::SeqCst);
                                 if count >= required_count {

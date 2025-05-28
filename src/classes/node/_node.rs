@@ -104,7 +104,7 @@ impl Node {
         let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
 
         let timeout_duration = Arc::new(RwLock::new(Duration::from_millis(
-            15000 + (rand::random::<u64>() % 200) * 50,
+            5000 + (rand::random::<u64>() % 20000),
         )));
 
         let node = Node {
@@ -198,8 +198,9 @@ impl Node {
                         let last = *last_heartbeat.read().await;
 
                         if last.elapsed() > timeout {
+                            warn!("[TIMEOUT] Timeout reached, starting leader election. Time since last heartbeat: {:?}, timeout is {:?}", last.elapsed(), timeout);
+
                             {
-                                warn!("[TIMEOUT] Timeout reached, starting leader election. Time since last heartbeat: {:?}, timeout is {:?}", last.elapsed(), timeout);
                                 let mut node = node_clone.write().await;
                                 node.state = PaxosState::Candidate;
                                 let _ = node.start_leader_election().await;
@@ -287,7 +288,6 @@ impl Node {
                         }
                     }
 
-                    // Transactional
                     PaxosMessage::ElectionRequest {
                         epoch,
                         request_id,
@@ -306,6 +306,7 @@ impl Node {
                         }
                     }
 
+                    // Transactional
                     PaxosMessage::AcceptRequest {
                         epoch,
                         request_id,
@@ -320,9 +321,6 @@ impl Node {
                                     &source, stream, epoch, request_id, &operation,
                                 )
                                 .await;
-
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
                         }
                     }
 
@@ -337,8 +335,6 @@ impl Node {
                             _ = node
                                 .handle_leader_learn(&source, stream, epoch, commit_id)
                                 .await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
                         }
                     }
 
@@ -351,8 +347,6 @@ impl Node {
                         {
                             let node = node_arc.write().await;
                             node.handle_follower_ack(&source, stream, request_id).await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
                         }
                     }
 
@@ -362,8 +356,6 @@ impl Node {
                         {
                             let mut node = node_arc.write().await;
                             node.handle_client_request(&source, stream, operation).await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
                         }
                     }
 
@@ -372,8 +364,6 @@ impl Node {
                         {
                             let node = node_arc.read().await;
                             node.handle_recovery_request(&source, stream, &key).await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
                         }
                     }
 

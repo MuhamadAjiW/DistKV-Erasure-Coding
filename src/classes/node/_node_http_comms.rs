@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::RwLock, time::Instant};
+use tokio::sync::RwLock;
 use tracing::{info, instrument};
 
 use crate::base_libs::_operation::{BinKV, Operation, OperationType};
@@ -60,14 +60,10 @@ impl Node {
         let result = {
             let mut node = node_data.write().await;
             let request_id = node.request_id;
-
             let result = node
                 .process_request(&operation, request_id)
                 .await
                 .unwrap_or_default();
-
-            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-            *last_heartbeat_mut = Instant::now();
 
             result
         };
@@ -103,9 +99,6 @@ impl Node {
                 .await
                 .unwrap_or_default();
 
-            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-            *last_heartbeat_mut = Instant::now();
-
             result
         };
 
@@ -135,14 +128,10 @@ impl Node {
         let result = {
             let mut node = node_data.write().await;
             let request_id = node.request_id;
-
             let result = node
                 .process_request(&operation, request_id)
                 .await
                 .unwrap_or_default();
-
-            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-            *last_heartbeat_mut = Instant::now();
 
             result
         };
