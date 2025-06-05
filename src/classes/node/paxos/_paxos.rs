@@ -1,7 +1,7 @@
 use std::{io, sync::atomic::Ordering, u64};
 
 use tokio::time::Instant;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn};
 
 use crate::{
     base_libs::{
@@ -14,6 +14,7 @@ use crate::{
 
 // ---Node Commands---
 impl Node {
+    #[instrument(level = "debug", skip_all)]
     pub async fn handle_leader_request(&mut self, source: &String, epoch: u64, request_id: u64) {
         if epoch < self.epoch {
             info!(
@@ -62,6 +63,8 @@ impl Node {
             }
         }
     }
+
+    #[instrument(level = "debug", skip_all)]
     pub async fn handle_leader_learn(
         &mut self,
         src_addr: &String,
@@ -101,6 +104,7 @@ impl Node {
         Ok(())
     }
 
+    #[instrument(level = "debug", skip_all)]
     pub async fn handle_leader_accept(
         &mut self,
         src_addr: &String,
