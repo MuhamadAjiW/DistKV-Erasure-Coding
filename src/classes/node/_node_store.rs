@@ -1,4 +1,4 @@
-use tracing::{info, instrument};
+use tracing::{error, info, instrument};
 
 use crate::base_libs::{
     _operation::{BinKV, Operation, OperationType},
@@ -26,7 +26,6 @@ impl Node {
                     self.forward_to_leader(PaxosMessage::ClientRequest {
                         operation: request.clone(),
                         source: self.address.to_string(),
-                        transaction_id: None,
                     })
                     .await;
                     response = Some("FORWARDED".to_string());
@@ -48,18 +47,17 @@ impl Node {
 
     #[instrument(level = "debug", skip_all)]
     pub async fn accept_value(&self, operation: &Operation, commit_id: u64) -> bool {
-        // Collect follower list under lock
         let follower_list: Vec<String> = {
             let followers_guard = self.cluster_list.read().await;
             followers_guard.iter().cloned().collect()
         };
+
         let majority = follower_list.len() / 2 + 1;
+        let acks;
 
-        // Apply to memory store (write lock if needed, else direct)
-        self.store.memory.process_request(operation).await;
-
-        // Prepare persistent op and broadcast tasks
-        let acks = if self.store.ec.active {
+        // _TODO: Delete operation is still broken here
+        self.store.memory.process_request(&operation).await;
+        if self.store.ec.active {
             let ec = self.store.ec.clone();
             let encoded_shard = ec.encode(&operation.kv.value);
             self.store.persistent.process_request(&Operation {
@@ -69,34 +67,43 @@ impl Node {
                     value: encoded_shard[self.cluster_index].clone(),
                 },
             });
-            // Broadcast after all locks released
-            self.broadcast_accept_ec(&follower_list, operation, &encoded_shard, commit_id)
+
+            acks = self
+                .broadcast_accept_ec(&follower_list, operation, &encoded_shard, commit_id)
                 .await
         } else {
             self.store.persistent.process_request(operation);
-            self.broadcast_accept_replication(&follower_list, operation, commit_id)
+            acks = self
+                .broadcast_accept_replication(&follower_list, operation, commit_id)
                 .await
-        };
+        }
 
         if acks < majority {
+            error!("Request failed: Accept broadcast is not accepted by majority");
             return false;
         }
-        true
+
+        info!("Request succeeded: Accept broadcast is accepted by majority");
+        return true;
     }
 
+    #[instrument(level = "debug", skip_all)]
     pub async fn learn_value(&self, node: &Node) -> bool {
-        // Collect follower list under lock
         let follower_list: Vec<String> = {
             let followers_guard = node.cluster_list.read().await;
             followers_guard.iter().cloned().collect()
         };
+
         let majority = follower_list.len() / 2 + 1;
-        // Broadcast after lock released
         let acks = node.broadcast_accept(&follower_list).await;
+
         if acks < majority {
+            error!("Request failed: Prepare broadcast is not accepted by majority");
             return false;
         }
-        true
+
+        info!("Request succeeded: Accept broadcast is accepted by majority");
+        return true;
     }
 
     pub async fn synchronize_log(&mut self, new_commit_id: u64) {

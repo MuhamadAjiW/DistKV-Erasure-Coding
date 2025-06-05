@@ -6,6 +6,7 @@ use crate::{
     classes::node::{_node::Node, paxos::_paxos_state::PaxosState},
 };
 
+// TODO: Implement
 impl Node {
     pub async fn start_leader_election(&mut self) -> Result<(), io::Error> {
         info!("[ELECTION] Starting leader election");
@@ -18,7 +19,6 @@ impl Node {
             epoch: self.epoch,
             request_id: self.request_id,
             source: self.address.to_string(),
-            transaction_id: None,
         };
         self.broadcast_message(leader_request).await;
 
@@ -34,7 +34,6 @@ impl Node {
             epoch: self.epoch,
             commit_id: self.request_id,
             source: self.address.to_string(),
-            transaction_id: None,
         };
         self.broadcast_message(leader_declaration).await;
     }

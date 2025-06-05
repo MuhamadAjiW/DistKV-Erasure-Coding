@@ -1,21 +1,29 @@
 use std::{io, sync::atomic::Ordering, u64};
 
-use tokio::time::Instant;
-use tracing::{error, info, instrument, warn};
+use tokio::{net::TcpStream, time::Instant};
+use tracing::{error, info, warn};
 
 use crate::{
     base_libs::{
         _operation::Operation,
         _paxos_types::PaxosMessage,
-        network::{_address::Address, _messages::send_message, _transaction::TransactionId},
+        network::{
+            _address::Address,
+            _messages::{reply_message, send_message},
+        },
     },
     classes::node::{_node::Node, paxos::_paxos_state::PaxosState},
 };
 
 // ---Node Commands---
 impl Node {
-    #[instrument(level = "debug", skip_all)]
-    pub async fn handle_leader_request(&mut self, source: &String, epoch: u64, request_id: u64) {
+    pub async fn handle_leader_request(
+        &mut self,
+        source: &String,
+        _stream: TcpStream,
+        epoch: u64,
+        request_id: u64,
+    ) {
         if epoch < self.epoch {
             info!(
                 "[ELECTION] Node received a leader request with a lower epoch: {}",
@@ -48,7 +56,6 @@ impl Node {
                     PaxosMessage::LeaderVote {
                         epoch: self.epoch,
                         source: self.address.to_string(),
-                        transaction_id: None,
                     },
                     &source,
                     &self.connection_manager,
@@ -63,14 +70,12 @@ impl Node {
             }
         }
     }
-
-    #[instrument(level = "debug", skip_all)]
     pub async fn handle_leader_learn(
         &mut self,
         src_addr: &String,
+        stream: TcpStream,
         epoch: u64,
         commit_id: u64,
-        transaction_id: Option<TransactionId>,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
             warn!(
@@ -97,21 +102,20 @@ impl Node {
             request_id: commit_id,
             epoch,
             source: self.address.to_string(),
-            transaction_id,
         };
-        let _ = send_message(ack, src_addr, &self.connection_manager).await;
+        _ = reply_message(ack, stream).await;
         info!("Follower acknowledged commit ID: {}", commit_id);
+
         Ok(())
     }
 
-    #[instrument(level = "debug", skip_all)]
     pub async fn handle_leader_accept(
         &mut self,
         src_addr: &String,
+        stream: TcpStream,
         epoch: u64,
         request_id: u64,
         operation: &Operation,
-        transaction_id: Option<TransactionId>,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
             warn!(
@@ -149,14 +153,19 @@ impl Node {
             epoch,
             request_id,
             source: self.address.to_string(),
-            transaction_id,
         };
-        let _ = send_message(ack, src_addr, &self.connection_manager).await;
+        _ = reply_message(ack, stream).await;
         info!("Follower acknowledged request ID: {}", request_id);
+
         Ok(())
     }
 
-    pub async fn handle_follower_ack(&self, _src_addr: &String, _request_id: u64) {
+    pub async fn handle_follower_ack(
+        &self,
+        _src_addr: &String,
+        _stream: TcpStream,
+        _request_id: u64,
+    ) {
         match self.state {
             _ => {
                 warn!(
@@ -167,7 +176,7 @@ impl Node {
         }
     }
 
-    pub async fn handle_leader_vote(&mut self, src_addr: &String, epoch: u64) {
+    pub async fn handle_leader_vote(&mut self, src_addr: &String, _stream: TcpStream, epoch: u64) {
         if self.state != PaxosState::Candidate {
             warn!(
                 "[ERROR] Node received LeaderVote message in state {:?}",
@@ -194,6 +203,7 @@ impl Node {
     pub async fn handle_leader_declaration(
         &mut self,
         src_addr: &String,
+        _stream: TcpStream,
         epoch: u64,
         commit_id: u64,
     ) {
@@ -221,7 +231,13 @@ impl Node {
         self.synchronize_log(commit_id).await;
     }
 
-    pub async fn handle_heartbeat(&mut self, src_addr: &String, epoch: u64, commit_id: u64) {
+    pub async fn handle_heartbeat(
+        &mut self,
+        src_addr: &String,
+        _stream: TcpStream,
+        epoch: u64,
+        commit_id: u64,
+    ) {
         if epoch < self.epoch {
             info!(
                 "[HEARTBEAT] Node received a heartbeat with a lower epoch: {}",

@@ -8,7 +8,6 @@ impl Node {
             epoch: self.epoch,
             commit_id: self.commit_id,
             source: self.address.to_string(),
-            transaction_id: None,
         };
         self.broadcast_message(heartbeat).await;
 
