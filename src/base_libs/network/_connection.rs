@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{self, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 
@@ -14,7 +14,7 @@ impl ConnectionManager {
             pool: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    pub async fn get_or_connect(&self, addr: &str) -> io::Result<Arc<Mutex<TcpStream>>> {
+    pub async fn get_or_connect(&self, addr: &str) -> std::io::Result<Arc<Mutex<TcpStream>>> {
         let maybe_stream = {
             let pool = self.pool.read().await;
             pool.get(addr).cloned()
