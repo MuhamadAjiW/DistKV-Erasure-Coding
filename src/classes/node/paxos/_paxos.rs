@@ -156,10 +156,10 @@ impl Node {
         // self.synchronize_log(request_id - 1).await;
         // self.store.transaction_log.append(operation).await;
         self.store.persistent.process_request(operation);
-
-        if !self.store.memory.get(&operation.kv.key).await.is_none() {
-            self.store.memory.remove(&operation.kv.key).await;
-        }
+        self.store
+            .memory
+            .set(&operation.kv.key, &operation.kv.value)
+            .await;
 
         Ok(())
     }
