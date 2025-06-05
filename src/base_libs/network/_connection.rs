@@ -1,64 +1,56 @@
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 use crate::base_libs::network::_transaction::TransactionManager;
 
 pub struct ConnectionManager {
-    pool: Arc<RwLock<HashMap<String, Arc<Mutex<TcpStream>>>>>,
+    pool: Arc<DashMap<String, Arc<Mutex<TcpStream>>>>,
     pub transaction_manager: Arc<TransactionManager>,
 }
 
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
-            pool: Arc::new(RwLock::new(HashMap::new())),
+            pool: Arc::new(DashMap::new()),
             transaction_manager: Arc::new(TransactionManager::new()),
         }
     }
     pub async fn get_or_connect(&self, addr: &str) -> std::io::Result<Arc<Mutex<TcpStream>>> {
-        let maybe_stream = {
-            let pool = self.pool.read().await;
-            pool.get(addr).cloned()
-        };
-        if let Some(stream) = maybe_stream {
-            return Ok(stream);
+        if let Some(stream) = self.pool.get(addr) {
+            return Ok(stream.clone());
         }
         let stream = TcpStream::connect(addr).await?;
         let arc_stream = Arc::new(Mutex::new(stream));
-        self.pool
-            .write()
-            .await
-            .insert(addr.to_string(), arc_stream.clone());
+        self.pool.insert(addr.to_string(), arc_stream.clone());
         Ok(arc_stream)
     }
 
     pub async fn remove(&self, addr: &str) {
-        if let Some(stream_arc) = self.pool.read().await.get(addr).cloned() {
-            if let Ok(mut stream) = stream_arc.try_lock() {
+        if let Some(entry) = self.pool.remove(addr) {
+            if let Ok(mut stream) = entry.1.try_lock() {
                 let _ = stream.shutdown().await;
             }
         }
-        self.pool.write().await.remove(addr);
     }
 
     pub async fn insert_incoming(&self, addr: &str, stream: Arc<Mutex<TcpStream>>) {
-        self.pool.write().await.insert(addr.to_string(), stream);
+        self.pool.insert(addr.to_string(), stream);
     }
 
     pub async fn get_stream(&self, addr: &str) -> Option<Arc<Mutex<TcpStream>>> {
-        let pool = self.pool.read().await;
-        pool.get(addr).cloned()
+        self.pool.get(addr).map(|stream| stream.clone())
     }
 
     pub async fn close_all(&self) {
-        let mut pool = self.pool.write().await;
-        for (_addr, stream_arc) in pool.drain() {
+        for item in self.pool.iter() {
+            let stream_arc = item.value();
             if let Ok(mut stream) = stream_arc.try_lock() {
                 let _ = stream.shutdown().await;
             }
         }
+        self.pool.clear();
     }
 }
