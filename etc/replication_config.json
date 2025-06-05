@@ -8,8 +8,8 @@
   "nodes": [
     {
       "ip": "0.0.0.0",
-      "port": 28180,
-      "http_port": 28080,
+      "port": 2180,
+      "http_port": 2080,
       "transaction_log": "./db/node-1/transaction.log",
       "memcached": {
         "ip": "0.0.0.0",
@@ -21,8 +21,8 @@
     },
     {
       "ip": "0.0.0.0",
-      "port": 28181,
-      "http_port": 28081,
+      "port": 2181,
+      "http_port": 2081,
       "transaction_log": "./db/node-2/transaction.log",
       "memcached": {
         "ip": "0.0.0.0",
@@ -34,8 +34,8 @@
     },
     {
       "ip": "0.0.0.0",
-      "port": 28182,
-      "http_port": 28082,
+      "port": 2182,
+      "http_port": 2082,
       "transaction_log": "./db/node-3/transaction.log",
       "memcached": {
         "ip": "0.0.0.0",
@@ -47,8 +47,8 @@
     },
     {
       "ip": "0.0.0.0",
-      "port": 28183,
-      "http_port": 28083,
+      "port": 2183,
+      "http_port": 2083,
       "transaction_log": "./db/node-4/transaction.log",
       "memcached": {
         "ip": "0.0.0.0",
@@ -60,8 +60,8 @@
     },
     {
       "ip": "0.0.0.0",
-      "port": 28184,
-      "http_port": 28084,
+      "port": 2184,
+      "http_port": 2084,
       "transaction_log": "./db/node-5/transaction.log",
       "memcached": {
         "ip": "0.0.0.0",

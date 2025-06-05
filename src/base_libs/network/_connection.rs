@@ -4,14 +4,18 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 
+use crate::base_libs::network::_transaction::TransactionManager;
+
 pub struct ConnectionManager {
     pool: Arc<RwLock<HashMap<String, Arc<Mutex<TcpStream>>>>>,
+    pub transaction_manager: Arc<TransactionManager>,
 }
 
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(RwLock::new(HashMap::new())),
+            transaction_manager: Arc::new(TransactionManager::new()),
         }
     }
     pub async fn get_or_connect(&self, addr: &str) -> std::io::Result<Arc<Mutex<TcpStream>>> {

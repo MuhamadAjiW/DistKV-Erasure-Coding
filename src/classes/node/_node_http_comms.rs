@@ -48,31 +48,28 @@ impl Node {
         body: web::Json<GetBody>,
     ) -> impl Responder {
         info!("[REQUEST] GET request received");
-
-        let operation = Operation {
-            op_type: OperationType::GET,
-            kv: BinKV {
-                key: body.key.clone(),
-                value: vec![],
-            },
-        };
-
-        let result = {
+        let key = body.key.clone();
+        let request_id = {
             let node = node_data.read().await;
-            let request_id = node.request_id;
-            let result = node
-                .process_request(&operation, request_id)
-                .await
-                .unwrap_or_default();
-
-            result
+            node.request_id
         };
-
+        // Only pass the data needed, drop the lock before processing
+        let result = Node::process_request_arc(
+            node_data.get_ref().clone(),
+            Operation {
+                op_type: OperationType::GET,
+                kv: BinKV {
+                    key: key.clone(),
+                    value: vec![],
+                },
+            },
+            request_id,
+        )
+        .await;
         let response = BaseResponse {
-            key: body.key.clone(),
+            key,
             response: result,
         };
-
         HttpResponse::Ok().json(response)
     }
 
@@ -82,31 +79,28 @@ impl Node {
         body: web::Json<PostBody>,
     ) -> impl Responder {
         info!("[REQUEST] POST request received");
-
-        let operation = Operation {
-            op_type: OperationType::SET,
-            kv: BinKV {
-                key: body.key.clone(),
-                value: body.value.clone().into_bytes(),
-            },
-        };
-
-        let result = {
+        let key = body.key.clone();
+        let value = body.value.clone();
+        let request_id = {
             let node = node_data.read().await;
-            let request_id = node.request_id;
-            let result = node
-                .process_request(&operation, request_id)
-                .await
-                .unwrap_or_default();
-
-            result
+            node.request_id
         };
-
+        let result = Node::process_request_arc(
+            node_data.get_ref().clone(),
+            Operation {
+                op_type: OperationType::SET,
+                kv: BinKV {
+                    key: key.clone(),
+                    value: value.into_bytes(),
+                },
+            },
+            request_id,
+        )
+        .await;
         let response = BaseResponse {
-            key: body.key.clone(),
+            key,
             response: result,
         };
-
         HttpResponse::Ok().json(response)
     }
 
@@ -116,31 +110,39 @@ impl Node {
         body: web::Json<DeleteBody>,
     ) -> impl Responder {
         info!("[REQUEST] DELETE request received");
-
-        let operation = Operation {
-            op_type: OperationType::DELETE,
-            kv: BinKV {
-                key: body.key.clone(),
-                value: vec![],
+        let key = body.key.clone();
+        let request_id = {
+            let node = node_data.read().await;
+            node.request_id
+        };
+        let result = Node::process_request_arc(
+            node_data.get_ref().clone(),
+            Operation {
+                op_type: OperationType::DELETE,
+                kv: BinKV {
+                    key: key.clone(),
+                    value: vec![],
+                },
             },
-        };
-
-        let result = {
-            let node = node_data.write().await;
-            let request_id = node.request_id;
-            let result = node
-                .process_request(&operation, request_id)
-                .await
-                .unwrap_or_default();
-
-            result
-        };
-
+            request_id,
+        )
+        .await;
         let response = BaseResponse {
-            key: body.key.clone(),
+            key,
             response: result,
         };
-
         HttpResponse::Ok().json(response)
+    }
+
+    // Call process_request on the node, but do not hold the lock across await
+    pub async fn process_request_arc(
+        node_data: Arc<RwLock<Node>>,
+        operation: Operation,
+        request_id: u64,
+    ) -> String {
+        let node = node_data.read().await;
+        node.process_request(&operation, request_id)
+            .await
+            .unwrap_or_default()
     }
 }

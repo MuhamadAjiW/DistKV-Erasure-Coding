@@ -144,13 +144,14 @@ async fn main() -> Result<(), io::Error> {
                 PaxosMessage::ClientRequest {
                     operation,
                     source: "CLIENT".to_string(),
+                    transaction_id: None,
                 },
                 node_addr,
                 &ConnectionManager::new(),
             )
             .await
             {
-                Ok(PaxosMessage::ClientReply { response, source }) => {
+                Ok(PaxosMessage::ClientReply { response, source, transaction_id: _ }) => {
                     info!("Reply from {}: {}", source, response);
                 }
                 Ok(other) => {

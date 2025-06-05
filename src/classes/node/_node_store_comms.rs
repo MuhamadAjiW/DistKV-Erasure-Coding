@@ -6,6 +6,7 @@ use std::sync::{
 use tokio::{
     sync::{Notify, RwLock},
     task::JoinSet,
+    time::timeout,
 };
 use tracing::{error, info, instrument, warn};
 
@@ -16,6 +17,7 @@ use crate::{
         network::_messages::{send_message, send_message_and_receive_response},
     },
     classes::node::paxos::_paxos_state::PaxosState,
+    config::_constants::ACK_TIMEOUT,
 };
 
 use super::_node::Node;
@@ -50,6 +52,7 @@ impl Node {
         let reply = PaxosMessage::ClientReply {
             response: result.clone(),
             source: self.address.to_string(),
+            transaction_id: None,
         };
         let _ = send_message(reply, src_addr, &self.connection_manager).await;
     }
@@ -62,6 +65,7 @@ impl Node {
                     index: self.cluster_index,
                     payload: value,
                     source: self.address.to_string(),
+                    transaction_id: None,
                 };
                 let _ = send_message(reply, src_addr, &self.connection_manager).await;
                 info!("Sent data request to follower at {}", src_addr);
@@ -102,6 +106,7 @@ impl Node {
                         epoch: (*epoch).clone(),
                         commit_id: request_id,
                         source: source.to_string(),
+                        transaction_id: None,
                     },
                     &follower_addr,
                     &conn_mgr_clone,
@@ -147,12 +152,9 @@ impl Node {
         }
 
         let majority = follower_list.len() / 2 + 1;
-        let mut acks = 1;
-
+        let mut acks = 1; // Count self
         let mut tasks = JoinSet::new();
         let conn_mgr = Arc::clone(&self.connection_manager);
-
-        // Share as much as possible and clone as little as possible
         let source = Arc::new(self.address.clone().to_string());
         let leader_addr = self.address.to_string();
         let commit_id = Arc::new(commit_id);
@@ -165,7 +167,6 @@ impl Node {
             if follower_addr == &leader_addr {
                 continue;
             }
-
             let follower_addr = follower_addr.clone();
             let source = Arc::clone(&source);
             let commit_id = Arc::clone(&commit_id);
@@ -176,55 +177,59 @@ impl Node {
             let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
-                let sent_shard = encoded_shard_arc[index].clone();
                 let sent_operation = Operation {
                     op_type: (*op_type).clone(),
                     kv: BinKV {
                         key: (*key).clone(),
-                        value: sent_shard,
+                        value: encoded_shard_arc[index].clone(),
                     },
                 };
+                let msg = PaxosMessage::AcceptRequest {
+                    operation: sent_operation,
+                    source: (*source).clone(),
+                    request_id: *commit_id,
+                    epoch: *epoch,
+                    transaction_id: None,
+                };
 
-                match send_message_and_receive_response(
-                    PaxosMessage::AcceptRequest {
-                        epoch: (*epoch).clone(),
-                        request_id: (*commit_id).clone(),
-                        operation: sent_operation,
-                        source: (*source).clone(),
-                    },
-                    follower_addr.as_str(),
-                    &conn_mgr_clone,
-                )
-                .await
+                match send_message_and_receive_response(msg, &follower_addr, &conn_mgr_clone).await
                 {
-                    Ok(PaxosMessage::Ack { .. }) => return Some(1),
-                    Ok(_) => return Some(0),
+                    Ok(PaxosMessage::Ack { .. }) => Some(1),
+                    Ok(_) => Some(0),
                     Err(e) => {
-                        error!(
-                            "Error receiving acknowledgment from follower at {}: {}",
-                            follower_addr, e
-                        );
-                        return Some(0);
+                        warn!("Error communicating with follower {}: {}", follower_addr, e);
+                        Some(0)
                     }
                 }
             });
         }
 
-        while let Some(response) = tasks.join_next().await {
-            match response {
-                Ok(Some(value)) => {
-                    acks += value;
-                    if acks >= majority {
-                        // TODO: Reconsider. This don't seem to be a good idea? What if some haven't received the packages?
-                        tasks.abort_all();
-                        break;
+        // Global timeout as a safeguard
+        let broadcast_result = timeout(ACK_TIMEOUT, async {
+            while let Some(response) = tasks.join_next().await {
+                match response {
+                    Ok(Some(value)) => {
+                        acks += value;
+                        if acks >= majority {
+                            // Got majority, abort remaining tasks
+                            tasks.abort_all();
+                            break;
+                        }
                     }
+                    _ => {}
                 }
-                _ => {} // Handle errors or None responses if needed
+            }
+            acks
+        })
+        .await;
+
+        match broadcast_result {
+            Ok(acks) => acks,
+            Err(_) => {
+                warn!("Broadcast timed out before reaching majority");
+                acks
             }
         }
-
-        acks
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -240,70 +245,73 @@ impl Node {
         }
 
         let majority = follower_list.len() / 2 + 1;
-        let mut acks = 1;
-
+        let mut acks = 1; // Count self
         let mut tasks = JoinSet::new();
         let conn_mgr = Arc::clone(&self.connection_manager);
-
         let source = Arc::new(self.address.clone().to_string());
         let leader_addr = self.address.to_string();
         let commit_id = Arc::new(commit_id);
+        let epoch = Arc::new(self.epoch.clone());
         let operation = Arc::new(operation.clone());
 
         for follower_addr in follower_list {
             if follower_addr == &leader_addr {
                 continue;
             }
-
             let follower_addr = follower_addr.clone();
             let source = Arc::clone(&source);
             let commit_id = Arc::clone(&commit_id);
-            let epoch = Arc::new(self.epoch.clone());
-            let source = Arc::clone(&source);
+            let epoch = Arc::clone(&epoch);
             let operation = Arc::clone(&operation);
             let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
-                match send_message_and_receive_response(
-                    PaxosMessage::AcceptRequest {
-                        epoch: (*epoch).clone(),
-                        request_id: (*commit_id).clone(),
-                        operation: (*operation).clone(),
-                        source: source.to_string(),
-                    },
-                    follower_addr.as_str(),
-                    &conn_mgr_clone,
-                )
-                .await
+                let msg = PaxosMessage::AcceptRequest {
+                    operation: (*operation).clone(),
+                    source: (*source).clone(),
+                    request_id: *commit_id,
+                    epoch: *epoch,
+                    transaction_id: None,
+                };
+
+                match send_message_and_receive_response(msg, &follower_addr, &conn_mgr_clone).await
                 {
-                    Ok(PaxosMessage::Ack { .. }) => return Some(1),
-                    Ok(_) => return Some(0),
+                    Ok(PaxosMessage::Ack { .. }) => Some(1),
+                    Ok(_) => Some(0),
                     Err(e) => {
-                        error!(
-                            "Error receiving acknowledgment from follower at {}: {}",
-                            follower_addr, e
-                        );
-                        return Some(0);
+                        warn!("Error communicating with follower {}: {}", follower_addr, e);
+                        Some(0)
                     }
                 }
             });
         }
 
-        while let Some(response) = tasks.join_next().await {
-            match response {
-                Ok(Some(value)) => {
-                    acks += value;
-                    if acks >= majority {
-                        // TODO: Reconsider. This don't seem to be a good idea? What if some haven't received the packages?
-                        tasks.abort_all();
-                        break;
+        // Global timeout as a safeguard
+        let broadcast_result = timeout(ACK_TIMEOUT, async {
+            while let Some(response) = tasks.join_next().await {
+                match response {
+                    Ok(Some(value)) => {
+                        acks += value;
+                        if acks >= majority {
+                            // Got majority, abort remaining tasks
+                            tasks.abort_all();
+                            break;
+                        }
                     }
+                    _ => {}
                 }
-                _ => {} // Handle errors or None responses if needed
+            }
+            acks
+        })
+        .await;
+
+        match broadcast_result {
+            Ok(acks) => acks,
+            Err(_) => {
+                warn!("Broadcast timed out before reaching majority");
+                acks
             }
         }
-
-        acks
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -346,6 +354,7 @@ impl Node {
                     PaxosMessage::RecoveryRequest {
                         key: key.clone(),
                         source: source.to_string(),
+                        transaction_id: None,
                     },
                     follower_addr.as_str(),
                     &conn_mgr_clone,
@@ -397,6 +406,7 @@ impl Node {
             PaxosMessage::RecoveryRequest {
                 key,
                 source: self.address.to_string(),
+                transaction_id: None,
             },
             follower_addr.as_str(),
             &conn_mgr,

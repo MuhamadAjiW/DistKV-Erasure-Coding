@@ -47,6 +47,7 @@ impl Node {
                     PaxosMessage::LeaderVote {
                         epoch: self.epoch,
                         source: self.address.to_string(),
+                        transaction_id: None,
                     },
                     &source,
                     &self.connection_manager,
@@ -92,6 +93,7 @@ impl Node {
             request_id: commit_id,
             epoch,
             source: self.address.to_string(),
+            transaction_id: None,
         };
         let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged commit ID: {}", commit_id);
@@ -141,6 +143,7 @@ impl Node {
             epoch,
             request_id,
             source: self.address.to_string(),
+            transaction_id: None,
         };
         let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged request ID: {}", request_id);
