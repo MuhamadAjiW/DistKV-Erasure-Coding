@@ -135,15 +135,6 @@ impl Node {
             return Ok(());
         }
 
-        // _NOTE: Check log synchronization safety, this could block the whole operation
-        self.synchronize_log(request_id - 1).await;
-        self.store.transaction_log.append(operation).await;
-        self.store.persistent.process_request(operation);
-
-        if !self.store.memory.get(&operation.kv.key).await.is_none() {
-            self.store.memory.remove(&operation.kv.key).await;
-        }
-
         info!("Follower received leader accept message from leader",);
         let ack = PaxosMessage::Ack {
             epoch,
@@ -153,6 +144,16 @@ impl Node {
         };
         let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged request ID: {}", request_id);
+
+        // _NOTE: Check log synchronization safety, this could block the whole operation
+        // self.synchronize_log(request_id - 1).await;
+        // self.store.transaction_log.append(operation).await;
+        self.store.persistent.process_request(operation);
+        self.store
+            .memory
+            .set(&operation.kv.key, &operation.kv.value)
+            .await;
+
         Ok(())
     }
 
@@ -218,7 +219,7 @@ impl Node {
         self.state = PaxosState::Follower;
         info!("[ELECTION] leader is now {:?}", self.leader_address);
 
-        self.synchronize_log(commit_id).await;
+        // self.synchronize_log(commit_id).await;
     }
 
     pub async fn handle_heartbeat(&mut self, src_addr: &String, epoch: u64, commit_id: u64) {
@@ -247,6 +248,6 @@ impl Node {
             *last_heartbeat_mut = Instant::now();
         }
 
-        self.synchronize_log(commit_id).await;
+        // self.synchronize_log(commit_id).await;
     }
 }
