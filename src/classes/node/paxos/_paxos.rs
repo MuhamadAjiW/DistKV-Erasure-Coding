@@ -58,7 +58,6 @@ impl Node {
                         source: self.address.to_string(),
                     },
                     &source,
-                    &self.connection_manager,
                 )
                 .await;
             }

@@ -11,7 +11,7 @@ use tracing::{error, info, instrument, warn};
 use crate::{
     base_libs::{
         _paxos_types::PaxosMessage,
-        network::{_address::Address, _connection::ConnectionManager, _messages::listen},
+        network::{_address::Address, _messages::listen},
     },
     classes::{config::_config::Config, ec::_ec::ECService, kvstore::_kvstore::KvStoreModule},
     config::_constants::{RECONNECT_INTERVAL, STOP_INTERVAL},
@@ -30,7 +30,6 @@ pub struct Node {
     // Internode communication
     pub address: Address,
     pub socket: Arc<TcpListener>,
-    pub connection_manager: Arc<ConnectionManager>,
 
     // Paxos related attributes
     pub leader_address: Option<Address>,
@@ -139,7 +138,6 @@ impl Node {
             timeout_duration,
             vote_count: AtomicUsize::new(0),
             store,
-            connection_manager: Arc::new(ConnectionManager::new()),
         };
 
         node

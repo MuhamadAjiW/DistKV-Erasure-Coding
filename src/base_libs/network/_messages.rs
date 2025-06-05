@@ -4,7 +4,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tracing::error;
 
 use crate::base_libs::_paxos_types::PaxosMessage;
-use crate::base_libs::network::_connection::ConnectionManager;
 
 pub async fn listen(socket: &TcpListener) -> io::Result<(TcpStream, PaxosMessage)> {
     let (mut stream, _src) = socket.accept().await?;
@@ -25,32 +24,14 @@ pub async fn listen(socket: &TcpListener) -> io::Result<(TcpStream, PaxosMessage
     Ok((stream, message))
 }
 
-pub async fn send_message(
-    message: PaxosMessage,
-    addr: &str,
-    conn_mgr: &ConnectionManager,
-) -> io::Result<()> {
-    let stream_arc = conn_mgr.get_or_connect(addr).await?;
-    let mut stream = stream_arc.lock().await;
-    let serialized = bincode::serialize(&message).unwrap();
-    stream
-        .write_all(&(serialized.len() as u32).to_be_bytes())
-        .await?;
-    stream.write_all(&serialized).await?;
-    Ok(())
-}
-
-pub async fn send_message_and_get_stream(
-    message: PaxosMessage,
-    addr: &str,
-    _conn_mgr: &ConnectionManager,
-) -> io::Result<TcpStream> {
+pub async fn send_message(message: PaxosMessage, addr: &str) -> io::Result<TcpStream> {
     let mut stream = TcpStream::connect(addr).await?;
     let serialized = bincode::serialize(&message).unwrap();
     stream
         .write_all(&(serialized.len() as u32).to_be_bytes())
         .await?;
-    stream.write_all(&serialized).await?;
+    stream.write(&serialized).await?;
+
     Ok(stream)
 }
 

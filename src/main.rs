@@ -6,8 +6,7 @@ use distkv::{
         _paxos_types::PaxosMessage,
         network::{
             _address::Address,
-            _connection::ConnectionManager,
-            _messages::{receive_string, send_message_and_get_stream},
+            _messages::{receive_string, send_message},
         },
     },
     classes::node::_node::Node,
@@ -141,13 +140,12 @@ async fn main() -> Result<(), io::Error> {
             }
 
             let operation = Operation::parse(&operation_bytes).unwrap();
-            match send_message_and_get_stream(
+            match send_message(
                 PaxosMessage::ClientRequest {
                     operation,
                     source: "CLIENT".to_string(),
                 },
                 node_addr,
-                &ConnectionManager::new(),
             )
             .await
             {

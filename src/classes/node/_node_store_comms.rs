@@ -1,6 +1,9 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 
 use tokio::{
@@ -15,9 +18,7 @@ use crate::{
     base_libs::{
         _operation::{BinKV, Operation, OperationType},
         _paxos_types::PaxosMessage,
-        network::_messages::{
-            receive_message, reply_message, reply_string, send_message_and_get_stream,
-        },
+        network::_messages::{receive_message, reply_message, reply_string, send_message},
     },
     classes::node::paxos::_paxos_state::PaxosState,
     config::_constants::ACK_TIMEOUT,
@@ -92,7 +93,6 @@ impl Node {
         let mut tasks = JoinSet::new();
         let source = Arc::new(self.address.clone());
         let epoch = Arc::new(self.epoch.clone());
-        let conn_mgr = Arc::clone(&self.connection_manager);
 
         for follower_addr in follower_list.iter() {
             if follower_addr == self.address.to_string().as_str() {
@@ -103,18 +103,16 @@ impl Node {
             let follower_addr = follower_addr.clone();
             let request_id = self.request_id.clone();
             let epoch = Arc::clone(&epoch);
-            let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
                 // Send the request to the follower
-                let stream = send_message_and_get_stream(
+                let stream = send_message(
                     PaxosMessage::LearnRequest {
                         epoch: (*epoch).clone(),
                         commit_id: request_id,
                         source: source.to_string(),
                     },
                     &follower_addr,
-                    &conn_mgr_clone,
                 )
                 .await
                 .unwrap();
@@ -173,7 +171,6 @@ impl Node {
         let mut acks = 1;
 
         let mut tasks = JoinSet::new();
-        let conn_mgr = Arc::clone(&self.connection_manager);
 
         // Share as much as possible and clone as little as possible
         let source = Arc::new(self.address.clone().to_string());
@@ -196,7 +193,6 @@ impl Node {
             let op_type = Arc::clone(&shared_op_type);
             let key = Arc::clone(&shared_key);
             let encoded_shard_arc = Arc::clone(&shared_encoded_shards);
-            let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
                 let sent_shard = encoded_shard_arc[index].clone();
@@ -209,7 +205,7 @@ impl Node {
                 };
 
                 // Send the request to the follower
-                let stream = send_message_and_get_stream(
+                let stream = send_message(
                     PaxosMessage::AcceptRequest {
                         epoch: (*epoch).clone(),
                         request_id: (*commit_id).clone(),
@@ -217,7 +213,6 @@ impl Node {
                         source: (*source).clone(),
                     },
                     follower_addr.as_str(),
-                    &conn_mgr_clone,
                 )
                 .await
                 .unwrap();
@@ -282,7 +277,6 @@ impl Node {
         let mut acks = 1;
 
         let mut tasks = JoinSet::new();
-        let conn_mgr = Arc::clone(&self.connection_manager);
 
         let source = Arc::new(self.address.clone().to_string());
         let leader_addr = self.address.to_string();
@@ -300,11 +294,10 @@ impl Node {
             let epoch = Arc::new(self.epoch.clone());
             let source = Arc::clone(&source);
             let operation = Arc::clone(&operation);
-            let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
                 // Send the request to the follower
-                let stream = send_message_and_get_stream(
+                let stream = send_message(
                     PaxosMessage::AcceptRequest {
                         epoch: (*epoch).clone(),
                         request_id: (*commit_id).clone(),
@@ -312,7 +305,6 @@ impl Node {
                         source: source.to_string(),
                     },
                     follower_addr.as_str(),
-                    &conn_mgr_clone,
                 )
                 .await
                 .unwrap();
@@ -380,7 +372,6 @@ impl Node {
         let required_count = ec.data_shard_count;
         let notify = Arc::new(Notify::new());
         let source = Arc::new(self.address.clone());
-        let conn_mgr = Arc::clone(&self.connection_manager);
 
         let mut tasks = JoinSet::new();
 
@@ -391,16 +382,14 @@ impl Node {
             let recovery_shards = Arc::clone(&recovery_shards);
             let response_count = Arc::clone(&response_count);
             let source = Arc::clone(&source);
-            let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
-                let stream = match send_message_and_get_stream(
+                let stream = match send_message(
                     PaxosMessage::RecoveryRequest {
                         key,
                         source: source.to_string(),
                     },
                     follower_addr.as_str(),
-                    &conn_mgr_clone,
                 )
                 .await
                 {
@@ -471,14 +460,12 @@ impl Node {
     ) -> Option<Vec<u8>> {
         let key = key.to_string();
 
-        let conn_mgr = Arc::clone(&self.connection_manager);
-        let stream = match send_message_and_get_stream(
+        let stream = match send_message(
             PaxosMessage::RecoveryRequest {
                 key,
                 source: self.address.to_string(),
             },
             follower_addr.as_str(),
-            &conn_mgr,
         )
         .await
         {
