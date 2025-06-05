@@ -5,11 +5,9 @@ use std::{
 };
 
 use actix_web::{web, App, HttpServer};
-use tokio::{
-    net::TcpListener,
-    sync::{Mutex, RwLock},
-    time::Instant,
-};
+use futures_util::StreamExt;
+use tokio::{net::TcpListener, sync::RwLock, time::Instant};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing::{error, info, instrument, warn};
 
 use super::paxos::_paxos_state::PaxosState;
@@ -249,7 +247,7 @@ impl Node {
                 let socket = {
                     let node = node_arc.read().await;
                     if !node.running {
-                        info!("[TIMEOUT] Running is false, stopping",);
+                        info!("[TIMEOUT] Running is false, stopping");
                         break;
                     }
                     node.socket.clone()
@@ -259,259 +257,210 @@ impl Node {
                 let (stream, peer_addr) = match socket.accept().await {
                     Ok((stream, addr)) => (stream, addr.to_string()),
                     Err(e) => {
-                        error!("[ERROR] Failed to accept connection: {}", e);
+                        error!("[TCP] Accept error: {}", e);
                         continue;
                     }
                 };
                 info!("[REQUEST] Accepted connection from {}", peer_addr);
 
                 let node_arc = node_arc.clone();
-                let peer_addr_clone = peer_addr.clone();
                 tokio::spawn(async move {
-                    let stream_arc = Arc::new(Mutex::new(stream));
-                    {
-                        let node = node_arc.read().await;
-                        node.connection_manager
-                            .insert_incoming(&peer_addr_clone, Arc::clone(&stream_arc))
-                            .await;
-                    }
-                    loop {
-                        // Lock only for reading, then drop before processing
-                        let message = {
-                            let mut guard = stream_arc.lock().await;
-                            crate::base_libs::network::_messages::receive_message_from_stream(
-                                &mut *guard,
-                            )
-                            .await
+                    let framed = Framed::new(stream, LengthDelimitedCodec::new());
+                    let (_, mut reader) = framed.split();
+                    while let Some(Ok(bytes)) = reader.next().await {
+                        let msg = match bincode::deserialize::<PaxosMessage>(&bytes) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                error!("[TCP] Failed to deserialize: {:?}", e);
+                                continue;
+                            }
                         };
-                        match message {
-                            Ok(message) => {
-                                // Transactional response handling
-                                let is_transaction_response = match &message {
-                                    PaxosMessage::Ack {
-                                        transaction_id: Some(tid),
-                                        ..
-                                    }
-                                    | PaxosMessage::ClientReply {
-                                        transaction_id: Some(tid),
-                                        ..
-                                    }
-                                    | PaxosMessage::RecoveryReply {
-                                        transaction_id: Some(tid),
-                                        ..
+                        let node_arc = node_arc.clone();
+                        tokio::spawn(async move {
+                            // Paxos message handling logic:
+                            let is_transaction_response = match &msg {
+                                PaxosMessage::Ack {
+                                    transaction_id: Some(tid),
+                                    ..
+                                }
+                                | PaxosMessage::ClientReply {
+                                    transaction_id: Some(tid),
+                                    ..
+                                }
+                                | PaxosMessage::RecoveryReply {
+                                    transaction_id: Some(tid),
+                                    ..
+                                } => {
+                                    let node = node_arc.read().await;
+                                    node.connection_manager
+                                        .transaction_manager
+                                        .handle_response(tid, msg.clone())
+                                        .await
+                                }
+                                _ => false,
+                            };
+                            if !is_transaction_response {
+                                match msg {
+                                    PaxosMessage::Heartbeat {
+                                        epoch,
+                                        commit_id,
+                                        source,
+                                        transaction_id: _,
                                     } => {
-                                        let node = node_arc.read().await;
-                                        node.connection_manager
-                                            .transaction_manager
-                                            .handle_response(tid, message.clone())
-                                            .await
+                                        info!("[REQUEST] Received Heartbeat from {}", source);
+                                        {
+                                            let node = node_arc.read().await;
+                                            let mut last_heartbeat_mut =
+                                                node.last_heartbeat.write().await;
+                                            *last_heartbeat_mut = Instant::now();
+                                        }
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            node.handle_heartbeat(&source, epoch, commit_id).await;
+                                        }
                                     }
-                                    _ => false,
-                                };
-
-                                // Only proceed with normal message handling if it's not a transaction response
-                                if !is_transaction_response {
-                                    match message {
-                                        // Leader election
-                                        PaxosMessage::Heartbeat {
-                                            epoch,
-                                            commit_id,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!("[REQUEST] Received Heartbeat from {}", source);
-                                            {
-                                                let node = node_arc.read().await;
-                                                let mut last_heartbeat_mut =
-                                                    node.last_heartbeat.write().await;
-                                                *last_heartbeat_mut = Instant::now();
-                                            }
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                node.handle_heartbeat(&source, epoch, commit_id)
-                                                    .await;
-                                            }
+                                    PaxosMessage::LeaderVote {
+                                        epoch,
+                                        source,
+                                        transaction_id: _,
+                                    } => {
+                                        info!("[REQUEST] Received LeaderVote from {}", source);
+                                        {
+                                            let node = node_arc.read().await;
+                                            let mut last_heartbeat_mut =
+                                                node.last_heartbeat.write().await;
+                                            *last_heartbeat_mut = Instant::now();
                                         }
-                                        PaxosMessage::LeaderVote {
-                                            epoch,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!("[REQUEST] Received LeaderVote from {}", source);
-                                            {
-                                                let node = node_arc.read().await;
-                                                let mut last_heartbeat_mut =
-                                                    node.last_heartbeat.write().await;
-                                                *last_heartbeat_mut = Instant::now();
-                                            }
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                node.handle_leader_vote(&source, epoch).await;
-                                            }
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            node.handle_leader_vote(&source, epoch).await;
                                         }
-                                        PaxosMessage::LeaderDeclaration {
-                                            epoch,
-                                            commit_id,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!(
-                                                "[REQUEST] Received LeaderDeclaration from {}",
-                                                source
-                                            );
-                                            {
-                                                let node = node_arc.read().await;
-                                                let mut last_heartbeat_mut =
-                                                    node.last_heartbeat.write().await;
-                                                *last_heartbeat_mut = Instant::now();
-                                            }
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                node.handle_leader_declaration(
-                                                    &source, epoch, commit_id,
-                                                )
-                                                .await;
-                                            }
-                                        }
-
-                                        PaxosMessage::ElectionRequest {
-                                            epoch,
-                                            request_id,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!(
-                                            "[REQUEST] Received ElectionRequest from {}, request id is {}",
-                                            source, request_id
+                                    }
+                                    PaxosMessage::LeaderDeclaration {
+                                        epoch,
+                                        commit_id,
+                                        source,
+                                        transaction_id: _,
+                                    } => {
+                                        info!(
+                                            "[REQUEST] Received LeaderDeclaration from {}",
+                                            source
                                         );
-                                            {
-                                                let node = node_arc.read().await;
-                                                let mut last_heartbeat_mut =
-                                                    node.last_heartbeat.write().await;
-                                                *last_heartbeat_mut = Instant::now();
-                                            }
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                node.handle_leader_request(
-                                                    &source, epoch, request_id,
+                                        {
+                                            let node = node_arc.read().await;
+                                            let mut last_heartbeat_mut =
+                                                node.last_heartbeat.write().await;
+                                            *last_heartbeat_mut = Instant::now();
+                                        }
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            node.handle_leader_declaration(
+                                                &source, epoch, commit_id,
+                                            )
+                                            .await;
+                                        }
+                                    }
+                                    PaxosMessage::ElectionRequest {
+                                        epoch,
+                                        request_id,
+                                        source,
+                                        transaction_id: _,
+                                    } => {
+                                        info!("[REQUEST] Received ElectionRequest from {}, request id is {}", source, request_id);
+                                        {
+                                            let node = node_arc.read().await;
+                                            let mut last_heartbeat_mut =
+                                                node.last_heartbeat.write().await;
+                                            *last_heartbeat_mut = Instant::now();
+                                        }
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            node.handle_leader_request(&source, epoch, request_id)
+                                                .await;
+                                        }
+                                    }
+                                    PaxosMessage::AcceptRequest {
+                                        epoch,
+                                        request_id,
+                                        operation,
+                                        source,
+                                        transaction_id,
+                                    } => {
+                                        info!("[REQUEST] Received AcceptRequest from {}", source);
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            _ = node
+                                                .handle_leader_accept(
+                                                    &source,
+                                                    epoch,
+                                                    request_id,
+                                                    &operation,
+                                                    transaction_id,
                                                 )
                                                 .await;
-                                            }
                                         }
-
-                                        // Transactional
-                                        PaxosMessage::AcceptRequest {
-                                            epoch,
-                                            request_id,
-                                            operation,
-                                            source,
-                                            transaction_id,
-                                        } => {
-                                            info!(
-                                                "[REQUEST] Received AcceptRequest from {}",
-                                                source
-                                            );
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                _ = node
-                                                    .handle_leader_accept(
-                                                        &source,
-                                                        epoch,
-                                                        request_id,
-                                                        &operation,
-                                                        transaction_id,
-                                                    )
-                                                    .await;
-                                            }
+                                    }
+                                    PaxosMessage::LearnRequest {
+                                        epoch,
+                                        commit_id,
+                                        source,
+                                        transaction_id,
+                                    } => {
+                                        info!("[REQUEST] Received LearnRequest from {}", source);
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            _ = node
+                                                .handle_leader_learn(
+                                                    &source,
+                                                    epoch,
+                                                    commit_id,
+                                                    transaction_id,
+                                                )
+                                                .await;
                                         }
-
-                                        PaxosMessage::LearnRequest {
-                                            epoch,
-                                            commit_id,
-                                            source,
-                                            transaction_id,
-                                        } => {
-                                            info!(
-                                                "[REQUEST] Received LearnRequest from {}",
-                                                source
-                                            );
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                _ = node
-                                                    .handle_leader_learn(
-                                                        &source,
-                                                        epoch,
-                                                        commit_id,
-                                                        transaction_id,
-                                                    )
-                                                    .await;
-                                            }
+                                    }
+                                    PaxosMessage::Ack {
+                                        epoch: _,
+                                        request_id,
+                                        source,
+                                        transaction_id: _,
+                                    } => {
+                                        info!("[REQUEST] Received FollowerAck from {}", source);
+                                        {
+                                            let node = node_arc.write().await;
+                                            node.handle_follower_ack(&source, request_id).await;
                                         }
-
-                                        PaxosMessage::Ack {
-                                            epoch: _,
-                                            request_id,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!("[REQUEST] Received FollowerAck from {}", source);
-                                            {
-                                                let node = node_arc.write().await;
-                                                node.handle_follower_ack(&source, request_id).await;
-                                            }
+                                    }
+                                    PaxosMessage::ClientRequest {
+                                        operation,
+                                        source,
+                                        transaction_id: _,
+                                    } => {
+                                        info!("[REQUEST] Received ClientRequest from {}", source);
+                                        {
+                                            let mut node = node_arc.write().await;
+                                            node.handle_client_request(&source, operation).await;
                                         }
-
-                                        // Client request
-                                        PaxosMessage::ClientRequest {
-                                            operation,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!(
-                                                "[REQUEST] Received ClientRequest from {}",
-                                                source
-                                            );
-                                            {
-                                                let mut node = node_arc.write().await;
-                                                node.handle_client_request(&source, operation)
-                                                    .await;
-                                            }
+                                    }
+                                    PaxosMessage::RecoveryRequest {
+                                        key,
+                                        source,
+                                        transaction_id: _,
+                                    } => {
+                                        info!("[REQUEST] Received RecoveryRequest from {}", source);
+                                        {
+                                            let node = node_arc.read().await;
+                                            node.handle_recovery_request(&source, &key).await;
                                         }
-
-                                        PaxosMessage::RecoveryRequest {
-                                            key,
-                                            source,
-                                            transaction_id: _,
-                                        } => {
-                                            info!(
-                                                "[REQUEST] Received RecoveryRequest from {}",
-                                                source
-                                            );
-                                            {
-                                                let node = node_arc.read().await;
-                                                node.handle_recovery_request(&source, &key).await;
-                                            }
-                                        }
-
-                                        _ => {
-                                            error!(
-                                                "[REQUEST] Received invalid message from unknown peer"
-                                            );
-                                        }
+                                    }
+                                    _ => {
+                                        error!(
+                                            "[REQUEST] Received invalid message from unknown peer"
+                                        );
                                     }
                                 }
                             }
-                            Err(e) => {
-                                error!(
-                                    "[ERROR] Connection {} closed or errored: {}",
-                                    peer_addr_clone, e
-                                );
-                                // Remove the connection from the connection manager on error/close
-                                let node = node_arc.read().await;
-                                node.connection_manager.remove(&peer_addr_clone).await;
-                                break;
-                            }
-                        }
+                        });
                     }
                 });
             }

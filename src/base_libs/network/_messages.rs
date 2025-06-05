@@ -1,6 +1,8 @@
 use bincode;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt};
 use tokio::net::TcpStream;
+use tokio::sync::oneshot;
+use tokio::time::timeout;
 use tracing::error;
 
 use crate::base_libs::_paxos_types::PaxosMessage;
@@ -24,84 +26,76 @@ pub async fn receive_message_from_stream(stream: &mut TcpStream) -> io::Result<P
     Ok(message)
 }
 
+/// Send a message using the connection pool (Framed) without expecting a response
 pub async fn send_message(
     message: PaxosMessage,
     addr: &str,
     conn_mgr: &ConnectionManager,
 ) -> io::Result<()> {
-    let stream_arc = conn_mgr.get_or_connect(addr).await?;
-    let mut stream = stream_arc.lock().await;
-    let serialized = bincode::serialize(&message).unwrap();
-    stream
-        .write_all(&(serialized.len() as u32).to_be_bytes())
-        .await?;
-    stream.write_all(&serialized).await?;
-    Ok(())
+    let peer_conn = conn_mgr
+        .get_or_connect(addr)
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    peer_conn
+        .send(message, None)
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Send failed"))
 }
 
-use tokio::time::timeout;
-
-/// Send a message using the connection pool and receive a response (request/response pattern).
-/// Uses a transaction ID to correlate requests with responses, which can come through the event loop.
+/// Send a message and receive a response using the connection pool (Framed)
 pub async fn send_message_and_receive_response(
     mut message: PaxosMessage,
     addr: &str,
     conn_mgr: &ConnectionManager,
 ) -> io::Result<PaxosMessage> {
-    // Create a transaction ID for this request-response pair
     let transaction_id = TransactionId::new();
-
     match &mut message {
         PaxosMessage::AcceptRequest {
             transaction_id: tid,
             ..
-        } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::LearnRequest {
+        }
+        | PaxosMessage::LearnRequest {
+            transaction_id: tid,
+            ..
+        }
+        | PaxosMessage::ElectionRequest {
+            transaction_id: tid,
+            ..
+        }
+        | PaxosMessage::LeaderVote {
+            transaction_id: tid,
+            ..
+        }
+        | PaxosMessage::LeaderDeclaration {
+            transaction_id: tid,
+            ..
+        }
+        | PaxosMessage::Heartbeat {
+            transaction_id: tid,
+            ..
+        }
+        | PaxosMessage::ClientRequest {
+            transaction_id: tid,
+            ..
+        }
+        | PaxosMessage::RecoveryRequest {
             transaction_id: tid,
             ..
         } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::ElectionRequest {
-            transaction_id: tid,
-            ..
-        } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::LeaderVote {
-            transaction_id: tid,
-            ..
-        } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::LeaderDeclaration {
-            transaction_id: tid,
-            ..
-        } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::Heartbeat {
-            transaction_id: tid,
-            ..
-        } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::ClientRequest {
-            transaction_id: tid,
-            ..
-        } => *tid = Some(transaction_id.clone()),
-        PaxosMessage::RecoveryRequest {
-            transaction_id: tid,
-            ..
-        } => *tid = Some(transaction_id.clone()),
-        _ => {} // Other message types don't need a transaction ID
+        _ => {}
     }
-
-    let response_receiver = conn_mgr
-        .transaction_manager
-        .register_transaction(transaction_id.clone())
-        .await;
-
-    send_message(message, addr, conn_mgr).await?;
-
-    match timeout(ACK_TIMEOUT, response_receiver).await {
+    let (tx, rx) = oneshot::channel();
+    let peer_conn = conn_mgr
+        .get_or_connect(addr)
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    peer_conn
+        .send(message, Some(tx))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Send failed"))?;
+    match timeout(ACK_TIMEOUT, rx).await {
         Ok(Ok(response)) => Ok(response),
         Ok(Err(_)) => {
-            error!("Transaction channel closed without response from {}", addr);
-            conn_mgr
-                .transaction_manager
-                .cancel_transaction(&transaction_id)
-                .await;
             conn_mgr.remove(addr).await;
             Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -109,11 +103,6 @@ pub async fn send_message_and_receive_response(
             ))
         }
         Err(_) => {
-            error!("Timeout waiting for response from {}", addr);
-            conn_mgr
-                .transaction_manager
-                .cancel_transaction(&transaction_id)
-                .await;
             conn_mgr.remove(addr).await;
             Err(io::Error::new(
                 io::ErrorKind::TimedOut,
