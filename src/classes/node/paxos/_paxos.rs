@@ -1,29 +1,20 @@
 use std::{io, sync::atomic::Ordering, u64};
 
-use tokio::{net::TcpStream, time::Instant};
+use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 use crate::{
     base_libs::{
         _operation::Operation,
         _paxos_types::PaxosMessage,
-        network::{
-            _address::Address,
-            _messages::{reply_message, send_message},
-        },
+        network::{_address::Address, _messages::send_message},
     },
     classes::node::{_node::Node, paxos::_paxos_state::PaxosState},
 };
 
 // ---Node Commands---
 impl Node {
-    pub async fn handle_leader_request(
-        &mut self,
-        source: &String,
-        _stream: TcpStream,
-        epoch: u64,
-        request_id: u64,
-    ) {
+    pub async fn handle_leader_request(&mut self, source: &String, epoch: u64, request_id: u64) {
         if epoch < self.epoch {
             info!(
                 "[ELECTION] Node received a leader request with a lower epoch: {}",
@@ -73,7 +64,6 @@ impl Node {
     pub async fn handle_leader_learn(
         &mut self,
         src_addr: &String,
-        stream: TcpStream,
         epoch: u64,
         commit_id: u64,
     ) -> Result<(), io::Error> {
@@ -103,16 +93,14 @@ impl Node {
             epoch,
             source: self.address.to_string(),
         };
-        _ = reply_message(ack, stream).await;
+        let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged commit ID: {}", commit_id);
-
         Ok(())
     }
 
     pub async fn handle_leader_accept(
         &mut self,
         src_addr: &String,
-        stream: TcpStream,
         epoch: u64,
         request_id: u64,
         operation: &Operation,
@@ -154,18 +142,12 @@ impl Node {
             request_id,
             source: self.address.to_string(),
         };
-        _ = reply_message(ack, stream).await;
+        let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged request ID: {}", request_id);
-
         Ok(())
     }
 
-    pub async fn handle_follower_ack(
-        &self,
-        _src_addr: &String,
-        _stream: TcpStream,
-        _request_id: u64,
-    ) {
+    pub async fn handle_follower_ack(&self, _src_addr: &String, _request_id: u64) {
         match self.state {
             _ => {
                 warn!(
@@ -176,7 +158,7 @@ impl Node {
         }
     }
 
-    pub async fn handle_leader_vote(&mut self, src_addr: &String, _stream: TcpStream, epoch: u64) {
+    pub async fn handle_leader_vote(&mut self, src_addr: &String, epoch: u64) {
         if self.state != PaxosState::Candidate {
             warn!(
                 "[ERROR] Node received LeaderVote message in state {:?}",
@@ -203,7 +185,6 @@ impl Node {
     pub async fn handle_leader_declaration(
         &mut self,
         src_addr: &String,
-        _stream: TcpStream,
         epoch: u64,
         commit_id: u64,
     ) {
@@ -231,13 +212,7 @@ impl Node {
         self.synchronize_log(commit_id).await;
     }
 
-    pub async fn handle_heartbeat(
-        &mut self,
-        src_addr: &String,
-        _stream: TcpStream,
-        epoch: u64,
-        commit_id: u64,
-    ) {
+    pub async fn handle_heartbeat(&mut self, src_addr: &String, epoch: u64, commit_id: u64) {
         if epoch < self.epoch {
             info!(
                 "[HEARTBEAT] Node received a heartbeat with a lower epoch: {}",

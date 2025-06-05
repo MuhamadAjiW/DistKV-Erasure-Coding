@@ -4,10 +4,8 @@ use std::sync::{
 };
 
 use tokio::{
-    net::TcpStream,
     sync::{Notify, RwLock},
     task::JoinSet,
-    time::timeout,
 };
 use tracing::{error, info, instrument, warn};
 
@@ -15,24 +13,16 @@ use crate::{
     base_libs::{
         _operation::{BinKV, Operation, OperationType},
         _paxos_types::PaxosMessage,
-        network::_messages::{
-            receive_message, reply_message, reply_string, send_message_and_get_stream,
-        },
+        network::_messages::{send_message, send_message_and_receive_response},
     },
     classes::node::paxos::_paxos_state::PaxosState,
-    config::_constants::ACK_TIMEOUT,
 };
 
 use super::_node::Node;
 
 impl Node {
     #[instrument(level = "debug", skip_all)]
-    pub async fn handle_client_request(
-        &mut self,
-        _src_addr: &String,
-        stream: TcpStream,
-        operation: Operation,
-    ) {
+    pub async fn handle_client_request(&mut self, src_addr: &String, operation: Operation) {
         let result: String;
 
         match operation.op_type {
@@ -57,22 +47,23 @@ impl Node {
             }
         }
 
-        _ = reply_string(result.as_str(), stream).await;
+        let reply = PaxosMessage::ClientReply {
+            response: result.clone(),
+            source: self.address.to_string(),
+        };
+        let _ = send_message(reply, src_addr, &self.connection_manager).await;
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub async fn handle_recovery_request(&self, src_addr: &String, stream: TcpStream, key: &str) {
+    pub async fn handle_recovery_request(&self, src_addr: &String, key: &str) {
         match self.store.persistent.get(key) {
             Some(value) => {
-                _ = reply_message(
-                    PaxosMessage::RecoveryReply {
-                        index: self.cluster_index,
-                        payload: value,
-                        source: self.address.to_string(),
-                    },
-                    stream,
-                )
-                .await;
+                let reply = PaxosMessage::RecoveryReply {
+                    index: self.cluster_index,
+                    payload: value,
+                    source: self.address.to_string(),
+                };
+                let _ = send_message(reply, src_addr, &self.connection_manager).await;
                 info!("Sent data request to follower at {}", src_addr);
             }
             None => {
@@ -106,8 +97,7 @@ impl Node {
             let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
-                // Send the request to the follower
-                let stream = send_message_and_get_stream(
+                match send_message_and_receive_response(
                     PaxosMessage::LearnRequest {
                         epoch: (*epoch).clone(),
                         commit_id: request_id,
@@ -117,30 +107,17 @@ impl Node {
                     &conn_mgr_clone,
                 )
                 .await
-                .unwrap();
-
-                // Wait for acknowledgment with timeout
-                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
-                    Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::Ack { .. } = ack {
-                            return Some(1);
-                        }
-                    }
-                    Ok(Err(e)) => {
+                {
+                    Ok(PaxosMessage::Ack { .. }) => return Some(1),
+                    Ok(_) => return Some(0),
+                    Err(e) => {
                         error!(
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
                         );
-                    }
-                    Err(_) => {
-                        error!(
-                            "Timeout waiting for acknowledgment from follower at {}",
-                            follower_addr
-                        );
+                        return Some(0);
                     }
                 }
-
-                return Some(0);
             });
         }
 
@@ -208,8 +185,7 @@ impl Node {
                     },
                 };
 
-                // Send the request to the follower
-                let stream = send_message_and_get_stream(
+                match send_message_and_receive_response(
                     PaxosMessage::AcceptRequest {
                         epoch: (*epoch).clone(),
                         request_id: (*commit_id).clone(),
@@ -220,28 +196,13 @@ impl Node {
                     &conn_mgr_clone,
                 )
                 .await
-                .unwrap();
-
-                // Wait for acknowledgment with timeout
-                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
-                    Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::Ack { .. } = ack {
-                            return Some(1);
-                        } else {
-                            return Some(0);
-                        }
-                    }
-                    Ok(Err(e)) => {
+                {
+                    Ok(PaxosMessage::Ack { .. }) => return Some(1),
+                    Ok(_) => return Some(0),
+                    Err(e) => {
                         error!(
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
-                        );
-                        return Some(0);
-                    }
-                    Err(_) => {
-                        warn!(
-                            "Timeout waiting for acknowledgment from follower at {}",
-                            follower_addr
                         );
                         return Some(0);
                     }
@@ -303,8 +264,7 @@ impl Node {
             let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
-                // Send the request to the follower
-                let stream = send_message_and_get_stream(
+                match send_message_and_receive_response(
                     PaxosMessage::AcceptRequest {
                         epoch: (*epoch).clone(),
                         request_id: (*commit_id).clone(),
@@ -315,29 +275,17 @@ impl Node {
                     &conn_mgr_clone,
                 )
                 .await
-                .unwrap();
-
-                // Wait for acknowledgment with timeout
-                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
-                    Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::Ack { .. } = ack {
-                            return Some(1);
-                        }
-                    }
-                    Ok(Err(e)) => {
+                {
+                    Ok(PaxosMessage::Ack { .. }) => return Some(1),
+                    Ok(_) => return Some(0),
+                    Err(e) => {
                         error!(
                             "Error receiving acknowledgment from follower at {}: {}",
                             follower_addr, e
                         );
-                    }
-                    Err(_) => {
-                        warn!(
-                            "Timeout waiting for acknowledgment from follower at {}",
-                            follower_addr
-                        );
+                        return Some(0);
                     }
                 }
-                return Some(0);
             });
         }
 
@@ -394,9 +342,9 @@ impl Node {
             let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             tasks.spawn(async move {
-                let stream = match send_message_and_get_stream(
+                match send_message_and_receive_response(
                     PaxosMessage::RecoveryRequest {
-                        key,
+                        key: key.clone(),
                         source: source.to_string(),
                     },
                     follower_addr.as_str(),
@@ -404,47 +352,21 @@ impl Node {
                 )
                 .await
                 {
-                    Ok(stream) => stream,
-                    Err(_e) => {
-                        error!(
-                            "Failed to broadcast request to follower at {}",
-                            follower_addr
-                        );
-                        return;
-                    }
-                };
-
-                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
-                    Ok(Ok((_stream, ack))) => {
-                        if let PaxosMessage::RecoveryReply {
-                            index,
-                            payload,
-                            source: _,
-                        } = ack
-                        {
-                            if index < size {
-                                {
-                                    let mut shards = recovery_shards.write().await;
-                                    shards[index] = Some(payload);
-                                }
-
-                                let count = response_count.fetch_add(1, Ordering::SeqCst);
-                                if count >= required_count {
-                                    notify.notify_one();
-                                }
+                    Ok(PaxosMessage::RecoveryReply { index, payload, .. }) => {
+                        if index < size {
+                            let mut shards = recovery_shards.write().await;
+                            shards[index] = Some(payload);
+                            let count = response_count.fetch_add(1, Ordering::SeqCst);
+                            if count >= required_count {
+                                notify.notify_one();
                             }
                         }
                     }
-                    Ok(Err(e)) => {
+                    Ok(_) => {}
+                    Err(e) => {
                         error!(
-                            "Error receiving recovery response from {}: {}",
+                            "Failed to broadcast request to follower at {}: {}",
                             follower_addr, e
-                        );
-                    }
-                    Err(_) => {
-                        error!(
-                            "Timeout waiting for recovery response from {}",
-                            follower_addr
                         );
                     }
                 }
@@ -470,9 +392,8 @@ impl Node {
         key: &str,
     ) -> Option<Vec<u8>> {
         let key = key.to_string();
-
         let conn_mgr = Arc::clone(&self.connection_manager);
-        let stream = match send_message_and_get_stream(
+        match send_message_and_receive_response(
             PaxosMessage::RecoveryRequest {
                 key,
                 source: self.address.to_string(),
@@ -482,46 +403,20 @@ impl Node {
         )
         .await
         {
-            Ok(stream) => stream,
-            Err(_e) => {
+            Ok(PaxosMessage::RecoveryReply { payload, .. }) => Some(payload),
+            Ok(other) => {
                 error!(
-                    "Failed to broadcast request to follower at {}",
-                    follower_addr
+                    "Unexpected message type from follower at {}: {:?}",
+                    follower_addr, other
                 );
-                return None;
+                None
             }
-        };
-
-        match timeout(ACK_TIMEOUT, receive_message(stream)).await {
-            Ok(Ok((_stream, ack))) => {
-                if let PaxosMessage::RecoveryReply {
-                    index: _,
-                    payload,
-                    source: _,
-                } = ack
-                {
-                    return Some(payload);
-                } else {
-                    error!(
-                        "Unexpected message type from follower at {}: {:?}",
-                        follower_addr, ack
-                    );
-                    return None;
-                }
-            }
-            Ok(Err(e)) => {
+            Err(e) => {
                 error!(
-                    "Error receiving recovery response from {}: {}",
+                    "Failed to broadcast request to follower at {}: {}",
                     follower_addr, e
                 );
-                return None;
-            }
-            Err(_) => {
-                warn!(
-                    "Timeout waiting for recovery response from {}",
-                    follower_addr
-                );
-                return None;
+                None
             }
         }
     }

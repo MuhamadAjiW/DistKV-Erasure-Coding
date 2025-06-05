@@ -14,10 +14,7 @@ impl ConnectionManager {
             pool: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Get an Arc<Mutex<TcpStream>> for the given address, or connect and insert if not present.
     pub async fn get_or_connect(&self, addr: &str) -> io::Result<Arc<Mutex<TcpStream>>> {
-        // Acquire read lock, clone Arc if exists, then drop lock
         let maybe_stream = {
             let pool = self.pool.read().await;
             pool.get(addr).cloned()
@@ -25,7 +22,6 @@ impl ConnectionManager {
         if let Some(stream) = maybe_stream {
             return Ok(stream);
         }
-        // Not found, connect
         let stream = TcpStream::connect(addr).await?;
         let arc_stream = Arc::new(Mutex::new(stream));
         self.pool
@@ -35,8 +31,16 @@ impl ConnectionManager {
         Ok(arc_stream)
     }
 
-    /// Remove a connection from the pool (e.g., on error)
     pub async fn remove(&self, addr: &str) {
         self.pool.write().await.remove(addr);
+    }
+
+    pub async fn insert_incoming(&self, addr: &str, stream: Arc<Mutex<TcpStream>>) {
+        self.pool.write().await.insert(addr.to_string(), stream);
+    }
+
+    pub async fn get_stream(&self, addr: &str) -> Option<Arc<Mutex<TcpStream>>> {
+        let pool = self.pool.read().await;
+        pool.get(addr).cloned()
     }
 }

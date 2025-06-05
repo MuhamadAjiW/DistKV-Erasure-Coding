@@ -5,7 +5,11 @@ use std::{
 };
 
 use actix_web::{web, App, HttpServer};
-use tokio::{net::TcpListener, sync::RwLock, time::Instant};
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, RwLock},
+    time::Instant,
+};
 use tracing::{error, info, instrument, warn};
 
 use crate::{
@@ -260,6 +264,22 @@ impl Node {
                     }
                 };
 
+                // Add the incoming stream to the connection pool, keyed by the source address (if available)
+                let peer_addr = match stream.peer_addr() {
+                    Ok(addr) => addr.to_string(),
+                    Err(_) => {
+                        error!("[ERROR] Could not get peer address for incoming stream");
+                        continue;
+                    }
+                };
+                let stream_arc = Arc::new(Mutex::new(stream));
+                {
+                    let node = node_arc.read().await;
+                    node.connection_manager
+                        .insert_incoming(&peer_addr, Arc::clone(&stream_arc))
+                        .await;
+                }
+
                 match message {
                     // Leader election
                     PaxosMessage::Heartbeat {
@@ -275,8 +295,7 @@ impl Node {
                         }
                         {
                             let mut node = node_arc.write().await;
-                            node.handle_heartbeat(&source, stream, epoch, commit_id)
-                                .await;
+                            node.handle_heartbeat(&source, epoch, commit_id).await;
                         }
                     }
                     PaxosMessage::LeaderVote { epoch, source } => {
@@ -288,7 +307,7 @@ impl Node {
                         }
                         {
                             let mut node = node_arc.write().await;
-                            node.handle_leader_vote(&source, stream, epoch).await;
+                            node.handle_leader_vote(&source, epoch).await;
                         }
                     }
                     PaxosMessage::LeaderDeclaration {
@@ -304,7 +323,7 @@ impl Node {
                         }
                         {
                             let mut node = node_arc.write().await;
-                            node.handle_leader_declaration(&source, stream, epoch, commit_id)
+                            node.handle_leader_declaration(&source, epoch, commit_id)
                                 .await;
                         }
                     }
@@ -325,8 +344,7 @@ impl Node {
                         }
                         {
                             let mut node = node_arc.write().await;
-                            node.handle_leader_request(&source, stream, epoch, request_id)
-                                .await;
+                            node.handle_leader_request(&source, epoch, request_id).await;
                         }
                     }
 
@@ -341,9 +359,7 @@ impl Node {
                         {
                             let mut node = node_arc.write().await;
                             _ = node
-                                .handle_leader_accept(
-                                    &source, stream, epoch, request_id, &operation,
-                                )
+                                .handle_leader_accept(&source, epoch, request_id, &operation)
                                 .await;
                         }
                     }
@@ -356,9 +372,7 @@ impl Node {
                         info!("[REQUEST] Received LearnRequest from {}", source);
                         {
                             let mut node = node_arc.write().await;
-                            _ = node
-                                .handle_leader_learn(&source, stream, epoch, commit_id)
-                                .await;
+                            _ = node.handle_leader_learn(&source, epoch, commit_id).await;
                         }
                     }
 
@@ -370,7 +384,7 @@ impl Node {
                         info!("[REQUEST] Received FollowerAck from {}", source);
                         {
                             let node = node_arc.write().await;
-                            node.handle_follower_ack(&source, stream, request_id).await;
+                            node.handle_follower_ack(&source, request_id).await;
                         }
                     }
 
@@ -379,7 +393,7 @@ impl Node {
                         info!("[REQUEST] Received ClientRequest from {}", source);
                         {
                             let mut node = node_arc.write().await;
-                            node.handle_client_request(&source, stream, operation).await;
+                            node.handle_client_request(&source, operation).await;
                         }
                     }
 
@@ -387,15 +401,12 @@ impl Node {
                         info!("[REQUEST] Received RecoveryRequest from {}", source);
                         {
                             let node = node_arc.read().await;
-                            node.handle_recovery_request(&source, stream, &key).await;
+                            node.handle_recovery_request(&source, &key).await;
                         }
                     }
 
                     _ => {
-                        error!(
-                            "[REQUEST] Received invalid message from {:?}",
-                            stream.peer_addr()
-                        );
+                        error!("[REQUEST] Received invalid message from unknown peer");
                     }
                 }
             }

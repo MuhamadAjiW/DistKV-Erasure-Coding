@@ -48,6 +48,10 @@ pub enum PaxosMessage {
         operation: Operation,
         source: String,
     },
+    ClientReply {
+        response: String,
+        source: String,
+    },
     RecoveryRequest {
         key: String,
         source: String,
