@@ -7,7 +7,7 @@ use crate::{
     base_libs::{
         _operation::Operation,
         _paxos_types::PaxosMessage,
-        network::{_address::Address, _messages::send_message},
+        network::{_address::Address, _messages::send_message, _transaction::TransactionId},
     },
     classes::node::{_node::Node, paxos::_paxos_state::PaxosState},
 };
@@ -67,6 +67,7 @@ impl Node {
         src_addr: &String,
         epoch: u64,
         commit_id: u64,
+        transaction_id: Option<TransactionId>,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
             warn!(
@@ -93,7 +94,7 @@ impl Node {
             request_id: commit_id,
             epoch,
             source: self.address.to_string(),
-            transaction_id: None,
+            transaction_id,
         };
         let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged commit ID: {}", commit_id);
@@ -106,6 +107,7 @@ impl Node {
         epoch: u64,
         request_id: u64,
         operation: &Operation,
+        transaction_id: Option<TransactionId>,
     ) -> Result<(), io::Error> {
         if self.state != PaxosState::Follower {
             warn!(
@@ -143,7 +145,7 @@ impl Node {
             epoch,
             request_id,
             source: self.address.to_string(),
-            transaction_id: None,
+            transaction_id,
         };
         let _ = send_message(ack, src_addr, &self.connection_manager).await;
         info!("Follower acknowledged request ID: {}", request_id);

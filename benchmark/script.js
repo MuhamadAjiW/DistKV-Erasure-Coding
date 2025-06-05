@@ -43,7 +43,7 @@ export default function () {
     // console.log('DELETE Response Status:', delRes.status);
     // console.log('DELETE Response Body:', delRes.body);
 
-    // sleep(1);
+    sleep(1);
 }
 
 export function handleSummary(data) {

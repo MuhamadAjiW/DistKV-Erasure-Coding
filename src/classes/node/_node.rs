@@ -405,7 +405,7 @@ impl Node {
                                             request_id,
                                             operation,
                                             source,
-                                            transaction_id: _,
+                                            transaction_id,
                                         } => {
                                             info!(
                                                 "[REQUEST] Received AcceptRequest from {}",
@@ -415,7 +415,11 @@ impl Node {
                                                 let mut node = node_arc.write().await;
                                                 _ = node
                                                     .handle_leader_accept(
-                                                        &source, epoch, request_id, &operation,
+                                                        &source,
+                                                        epoch,
+                                                        request_id,
+                                                        &operation,
+                                                        transaction_id,
                                                     )
                                                     .await;
                                             }
@@ -425,7 +429,7 @@ impl Node {
                                             epoch,
                                             commit_id,
                                             source,
-                                            transaction_id: _,
+                                            transaction_id,
                                         } => {
                                             info!(
                                                 "[REQUEST] Received LearnRequest from {}",
@@ -434,7 +438,12 @@ impl Node {
                                             {
                                                 let mut node = node_arc.write().await;
                                                 _ = node
-                                                    .handle_leader_learn(&source, epoch, commit_id)
+                                                    .handle_leader_learn(
+                                                        &source,
+                                                        epoch,
+                                                        commit_id,
+                                                        transaction_id,
+                                                    )
                                                     .await;
                                             }
                                         }
