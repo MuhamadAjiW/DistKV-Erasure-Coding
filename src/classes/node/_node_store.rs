@@ -57,8 +57,8 @@ impl Node {
         let majority = follower_list.len() / 2 + 1;
         let acks;
 
-        // _TODO: Delete operation is still broken here
         self.store.memory.process_request(&operation).await;
+
         if self.store.ec.active {
             let ec = self.store.ec.clone();
             let encoded_shard = ec.encode(&operation.kv.value);

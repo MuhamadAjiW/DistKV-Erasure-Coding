@@ -1,7 +1,10 @@
 use bb8_memcached::{bb8::Pool, MemcacheConnectionManager};
 use tracing::instrument;
 
-use crate::base_libs::_operation::{Operation, OperationType};
+use crate::{
+    base_libs::_operation::{Operation, OperationType},
+    config::_constants::ACK_TIMEOUT,
+};
 
 pub struct KvMemory {
     pool: Pool<MemcacheConnectionManager>,
@@ -11,8 +14,9 @@ impl KvMemory {
     pub async fn new(memcached_url: &str) -> Self {
         let manager = MemcacheConnectionManager::new(memcached_url).unwrap();
         let pool = Pool::builder()
-            // .max_size(1000) // Default maximum number of memcached connections is 1024, book 1000 of them
-            // .min_idle(1000) // All connections should be taken by the server
+            .max_size(1024)
+            .min_idle(10) // All connections should be taken by the server
+            .idle_timeout(Some(ACK_TIMEOUT))
             .build(manager)
             .await
             .unwrap();
