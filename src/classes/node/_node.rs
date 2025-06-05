@@ -14,6 +14,7 @@ use crate::{
         network::{_address::Address, _messages::listen},
     },
     classes::{config::_config::Config, ec::_ec::ECService, kvstore::_kvstore::KvStoreModule},
+    config::_constants::{RECONNECT_INTERVAL, STOP_INTERVAL},
 };
 
 use super::paxos::_paxos_state::PaxosState;
@@ -102,7 +103,19 @@ impl Node {
         cluster_index: usize,
         store: KvStoreModule,
     ) -> Self {
-        let socket = Arc::new(TcpListener::bind(address.to_string()).await.unwrap());
+        info!("[INIT] binding address: {}", address);
+        let socket = loop {
+            match TcpListener::bind(address.to_string()).await {
+                Ok(listener) => break Arc::new(listener),
+                Err(e) => {
+                    error!(
+                        "[INIT] Failed to bind to {}: {}. Retrying in 1s...",
+                        address, e
+                    );
+                    tokio::time::sleep(RECONNECT_INTERVAL).await;
+                }
+            }
+        };
 
         let timeout_duration = Arc::new(Duration::from_millis(
             1000 + (rand::random::<u64>() % 20000),
@@ -406,21 +419,35 @@ impl Node {
                     address.ip, address.port
                 );
 
-                HttpServer::new(move || {
-                    App::new()
-                        .app_data(web::Data::new(node_arc.clone()))
-                        .app_data(web::PayloadConfig::new(max_payload))
-                        .app_data(web::JsonConfig::default().limit(max_payload))
-                        .route("/", web::get().to(Node::http_healthcheck))
-                        .route("/kv/range", web::post().to(Node::http_get))
-                        .route("/kv/put", web::post().to(Node::http_put))
-                        .route("/kv/deleterange", web::post().to(Node::http_delete))
-                })
-                .bind((address.ip, address.port))
-                .expect("[ERROR] Failed to bind HTTP server")
-                .run()
-                .await
-                .expect("[ERROR] Actix server crashed");
+                let http_server = loop {
+                    let node_arc_clone = node_arc.clone();
+                    match HttpServer::new(move || {
+                        App::new()
+                            .app_data(web::Data::new(node_arc_clone.clone()))
+                            .app_data(web::PayloadConfig::new(max_payload))
+                            .app_data(web::JsonConfig::default().limit(max_payload))
+                            .route("/", web::get().to(Node::http_healthcheck))
+                            .route("/kv/range", web::post().to(Node::http_get))
+                            .route("/kv/put", web::post().to(Node::http_put))
+                            .route("/kv/deleterange", web::post().to(Node::http_delete))
+                    })
+                    .bind((address.ip.as_str(), address.port))
+                    {
+                        Ok(server) => break server,
+                        Err(e) => {
+                            error!(
+                                "[INIT] Failed to bind HTTP server to {}:{}: {}. Retrying in 1s...",
+                                address.ip, address.port, e
+                            );
+                            std::thread::sleep(RECONNECT_INTERVAL);
+                        }
+                    }
+                };
+
+                http_server
+                    .run()
+                    .await
+                    .expect("[ERROR] Actix server crashed");
             })
         });
     }
@@ -454,7 +481,7 @@ impl Node {
             node.running = false;
             info!("[INIT] Node is stopping...");
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(STOP_INTERVAL).await;
         }
     }
 }
