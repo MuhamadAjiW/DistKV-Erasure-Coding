@@ -14,7 +14,12 @@ impl Node {
 
         match request.op_type {
             OperationType::GET => {
-                response = self.store.memory.get(&request.kv.key).await;
+                response = self
+                    .store
+                    .memory
+                    .get(&request.kv.key)
+                    .await
+                    .and_then(|v| String::from_utf8(v).ok());
                 if response.is_none() {
                     let recovered = self.store.get_from_cluster(&request.kv.key, self).await;
                     response = recovered.unwrap_or_default();

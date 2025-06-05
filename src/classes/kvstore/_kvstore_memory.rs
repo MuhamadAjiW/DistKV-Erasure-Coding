@@ -14,27 +14,27 @@ impl KvMemory {
         }
     }
 
+    #[inline(always)]
     #[instrument(level = "debug", skip_all)]
-    pub async fn set(&self, key: &String, value: &[u8]) {
-        self.store.insert(key.clone(), value.to_vec()).await;
+    pub async fn set(&self, key: &str, value: &[u8]) {
+        self.store.insert(key.to_string(), value.to_vec()).await;
     }
 
+    #[inline(always)]
     #[instrument(level = "debug", skip_all)]
-    pub async fn get(&self, key: &String) -> Option<String> {
-        self.store
-            .get(key)
-            .await
-            .map(|v| String::from_utf8_lossy(&v).to_string())
+    pub async fn get(&self, key: &str) -> Option<Vec<u8>> {
+        self.store.get(key).await
     }
 
+    #[inline(always)]
     #[instrument(level = "debug", skip_all)]
-    pub async fn remove(&self, key: &String) -> () {
+    pub async fn remove(&self, key: &str) {
         self.store.invalidate(key).await;
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub async fn process_request(&self, request: &Operation) -> Option<String> {
-        let mut response: Option<String> = None;
+    pub async fn process_request(&self, request: &Operation) -> Option<Vec<u8>> {
+        let mut response: Option<Vec<u8>> = None;
 
         match request.op_type {
             OperationType::GET => {

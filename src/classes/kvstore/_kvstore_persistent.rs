@@ -14,13 +14,15 @@ impl KvPersistent {
         };
     }
 
+    #[inline(always)]
     #[instrument(level = "debug", skip_all)]
-    pub fn set(&self, key: &str, value: &Vec<u8>) -> () {
+    pub fn set(&self, key: &str, value: &[u8]) {
         self.rocks_db
             .put(key, value)
             .expect("Failed to set RocksDB");
     }
 
+    #[inline(always)]
     #[instrument(level = "debug", skip_all)]
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         if let Ok(Some(value)) = self.rocks_db.get(key) {
@@ -30,8 +32,9 @@ impl KvPersistent {
         }
     }
 
+    #[inline(always)]
     #[instrument(level = "debug", skip_all)]
-    pub fn remove(&self, key: &str) -> () {
+    pub fn remove(&self, key: &str) {
         self.rocks_db
             .delete(key)
             .expect("Failed to delete from RocksDB");
