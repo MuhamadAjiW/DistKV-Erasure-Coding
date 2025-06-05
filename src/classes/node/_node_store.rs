@@ -9,11 +9,7 @@ use super::{_node::Node, paxos::_paxos_state::PaxosState};
 
 impl Node {
     #[instrument(level = "debug", skip_all)]
-    pub async fn process_request(
-        &mut self,
-        request: &Operation,
-        request_id: u64,
-    ) -> Option<String> {
+    pub async fn process_request(&self, request: &Operation, request_id: u64) -> Option<String> {
         let mut response: Option<String> = None;
 
         match request.op_type {
@@ -46,13 +42,13 @@ impl Node {
             _ => {}
         }
 
-        self.store.transaction_log.append(&request).await;
+        // self.store.transaction_log.append(&request).await;
 
         response
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub async fn accept_value(&mut self, operation: &Operation, commit_id: u64) -> bool {
+    pub async fn accept_value(&self, operation: &Operation, commit_id: u64) -> bool {
         let follower_list: Vec<String> = {
             let followers_guard = self.cluster_list.read().await;
             followers_guard.iter().cloned().collect()
@@ -90,8 +86,8 @@ impl Node {
         }
 
         // _NOTE: Check log synchronization safety, this could block the whole operation
-        self.synchronize_log(commit_id - 1).await;
-        self.store.transaction_log.append(operation).await;
+        // self.synchronize_log(commit_id - 1).await;
+        // self.store.transaction_log.append(operation).await;
 
         info!("Request succeeded: Accept broadcast is accepted by majority");
         return true;
