@@ -21,6 +21,7 @@ use crate::{
         network::_messages::{receive_message, reply_message, reply_string, send_message},
     },
     classes::node::paxos::_paxos_state::PaxosState,
+    config::_constants::ACK_TIMEOUT,
 };
 
 use super::_node::Node;
@@ -116,8 +117,8 @@ impl Node {
                 .await
                 .unwrap();
 
-                // Wait for acknowledgment with timeout (ex. 2 seconds)
-                match timeout(Duration::from_secs(10), receive_message(stream)).await {
+                // Wait for acknowledgment with timeout
+                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::Ack { .. } = ack {
                             return Some(1);
@@ -216,8 +217,8 @@ impl Node {
                 .await
                 .unwrap();
 
-                // Wait for acknowledgment with timeout (ex. 2 seconds)
-                match timeout(Duration::from_secs(10), receive_message(stream)).await {
+                // Wait for acknowledgment with timeout
+                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::Ack { .. } = ack {
                             return Some(1);
@@ -308,8 +309,8 @@ impl Node {
                 .await
                 .unwrap();
 
-                // Wait for acknowledgment with timeout (ex. 2 seconds)
-                match timeout(Duration::from_secs(10), receive_message(stream)).await {
+                // Wait for acknowledgment with timeout
+                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::Ack { .. } = ack {
                             return Some(1);
@@ -402,7 +403,7 @@ impl Node {
                     }
                 };
 
-                match timeout(Duration::from_secs(10), receive_message(stream)).await {
+                match timeout(ACK_TIMEOUT, receive_message(stream)).await {
                     Ok(Ok((_stream, ack))) => {
                         if let PaxosMessage::RecoveryReply {
                             index,
@@ -478,7 +479,7 @@ impl Node {
             }
         };
 
-        match timeout(Duration::from_secs(10), receive_message(stream)).await {
+        match timeout(ACK_TIMEOUT, receive_message(stream)).await {
             Ok(Ok((_stream, ack))) => {
                 if let PaxosMessage::RecoveryReply {
                     index: _,
