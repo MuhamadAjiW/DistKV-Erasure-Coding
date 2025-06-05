@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io;
+use tokio::io::{self, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock};
 
@@ -32,6 +32,11 @@ impl ConnectionManager {
     }
 
     pub async fn remove(&self, addr: &str) {
+        if let Some(stream_arc) = self.pool.read().await.get(addr).cloned() {
+            if let Ok(mut stream) = stream_arc.try_lock() {
+                let _ = stream.shutdown().await;
+            }
+        }
         self.pool.write().await.remove(addr);
     }
 
@@ -44,9 +49,7 @@ impl ConnectionManager {
         pool.get(addr).cloned()
     }
 
-    /// Gracefully close all connections in the pool
     pub async fn close_all(&self) {
-        use tokio::io::AsyncWriteExt;
         let mut pool = self.pool.write().await;
         for (_addr, stream_arc) in pool.drain() {
             if let Ok(mut stream) = stream_arc.try_lock() {
