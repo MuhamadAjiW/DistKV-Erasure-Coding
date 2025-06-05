@@ -494,6 +494,9 @@ impl Node {
             node.running = false;
             info!("[INIT] Node is stopping...");
 
+            // Gracefully close all connections in the connection manager
+            node.connection_manager.close_all().await;
+
             tokio::time::sleep(STOP_INTERVAL).await;
         }
     }

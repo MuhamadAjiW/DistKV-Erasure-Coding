@@ -43,4 +43,15 @@ impl ConnectionManager {
         let pool = self.pool.read().await;
         pool.get(addr).cloned()
     }
+
+    /// Gracefully close all connections in the pool
+    pub async fn close_all(&self) {
+        use tokio::io::AsyncWriteExt;
+        let mut pool = self.pool.write().await;
+        for (_addr, stream_arc) in pool.drain() {
+            if let Ok(mut stream) = stream_arc.try_lock() {
+                let _ = stream.shutdown().await;
+            }
+        }
+    }
 }
