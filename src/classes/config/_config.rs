@@ -24,14 +24,7 @@ pub struct NodeConfig {
     pub port: u16,
     pub http_port: u16,
     pub transaction_log: String,
-    pub memcached: MemcachedConfig,
     pub rocks_db: RocksDbConfig,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct MemcachedConfig {
-    pub ip: String,
-    pub port: u16,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -76,14 +76,6 @@ validate_config() {
         exit 1
     fi
 
-    local unique_memcached
-    unique_memcached=$(jq -r '.nodes[] | "\(.memcached.ip):\(.memcached.port)"' "$path" | sort | uniq | wc -l)
-
-    if [[ "$unique_memcached" -ne "$node_count" ]]; then
-        echo "Error: Duplicate memcached addresses found in the configuration."
-        exit 1
-    fi
-
     local unique_rocks_db
     unique_rocks_db=$(jq -r '.nodes[] | .rocks_db.path' "$path" | sort | uniq | wc -l)
 
@@ -159,67 +151,6 @@ clean() {
     echo "Cleanup complete."
 }
 
-run_memcached() {
-    local config_path="${1:-./etc/config.json}"
-    local memory="${2:-4096}"
-    local PIDS=()
-
-    validate_config "$config_path"
-
-    cleanup_memcached() {
-        echo -e "\nStopping Memcached instances..."
-        for PID in "${PIDS[@]}"; do
-            if kill -0 "$PID" 2>/dev/null; then
-                echo "Killing process $PID"
-                kill "$PID"
-            else
-                echo "Process $PID already stopped or does not exist."
-            fi
-        done
-        echo "All Memcached instances stopped."
-        exit 0
-    }
-    trap cleanup_memcached SIGINT SIGTERM
-
-    local instance_count
-    instance_count=$(jq -r '.nodes | length' "$config_path")
-
-    if [ "$instance_count" -le 0 ]; then
-        echo "No memcached instances to start based on config."
-        return 0
-    fi
-
-    echo "Starting $instance_count Memcached instances..."
-
-    for ((i=0; i<instance_count; i++)); do
-        local ip
-        local port
-        ip=$(jq -r ".nodes[$i].memcached.ip" "$config_path")
-        port=$(jq -r ".nodes[$i].memcached.port" "$config_path")
-        
-        if netstat -tuln | grep -q "$ip:$port"; then
-            echo "Memcached already running on $ip:$port. Skipping."
-            continue
-        fi
-
-        memcached -d -m "$memory" -I 1024m -l "$ip" -p "$port"
-        sleep 2
-
-        PID=$(pgrep -f "memcached.*-l $ip -p $port")
-        if [ -n "$PID" ]; then
-            PIDS+=("$PID")
-            echo "Started Memcached on $ip:$port with PID $PID"
-        else
-            echo "Failed to start Memcached on $ip:$port"
-        fi
-    done
-
-    echo "All configured Memcached instances are running. Press Ctrl+C to stop them."
-    while true; do
-        sleep 60
-    done
-}
-
 run_all() {
     local config_path="./etc/config.json"
     local file_output=""
@@ -270,9 +201,6 @@ run_all() {
     else
         echo "Global tracing disabled for all nodes."
     fi
-
-    start_terminal "./scripts.sh run_memcached ${config_path}" "memcached-manager"
-    sleep 15
 
     local node_count
     node_count=$(jq -r '.nodes | length' "$config_path")
@@ -332,21 +260,17 @@ if [ "$1" == "clean" ]; then
 elif [ "$1" == "run_node" ]; then
     shift
     run_node "$@"
-elif [ "$1" == "run_memcached" ]; then
-    run_memcached "$2" "$3"
 elif [ "$1" == "run_all" ]; then
     shift
     run_all "$@"
 elif [ "$1" == "stop_all" ]; then
     kill_all_screen_session
-    sudo pkill memcached
-    echo "Attempted to kill Memcached processes."
 elif [ "$1" == "bench_system" ]; then
     bench_system "$2"
 elif [ "$1" == "bench_baseline" ]; then
     bench_baseline
 elif [ "$1" == "help" ] || [ -z "$1" ]; then
-    echo "Usage: $0 {clean|run_node|run_memcached|run_all|stop_all|bench_system|bench_baseline|help}"
+    echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|help}"
     echo ""
     echo "Commands:"
     echo "  clean                                                                       :"
@@ -358,18 +282,13 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "          --config_file  : Path to the configuration JSON."
     echo "          --file_output  : 'true' to log to file, 'false' (default) to log to terminal."
     echo ""
-    echo "  run_memcached [config_file] [memory_mb]                                     : "
-    echo "          Starts Memcached instances for all nodes defined in the config."
-    echo "          [config_file] : Path to the configuration JSON (default: ./etc/config.json)."
-    echo "          [memory_mb]   : Memory limit for Memcached in MB (default: 64)."
-    echo ""
     echo "  run_all [--file_output <true/false>] [--config_file <path>]                 : "
-    echo "          Starts all Memcached instances and all DistKV nodes in separate screen windows."
+    echo "          Starts all DistKV nodes in separate screen windows."
     echo "          --file_output : 'true' to log nodes to file, 'false' (default) to log to terminal."
     echo "          --config_file : Path to the configuration JSON (default: ./etc/config.json)."
     echo ""
     echo "  stop_all                                                                    : "
-    echo "          Kills all screen sessions created by this script and attempts to stop Memcached processes."
+    echo "          Kills all screen sessions created by this script."
     echo ""
     echo "  bench_system '<leader_addr>'                                       : "
     echo "          Runs k6 benchmark against the running DistKV system."

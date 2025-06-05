@@ -8,7 +8,7 @@ pub struct KvMemory {
 }
 
 impl KvMemory {
-    pub async fn new(_memcached_url: &str) -> Self {
+    pub async fn new() -> Self {
         KvMemory {
             store: Cache::builder().max_capacity(100_000).build(),
         }

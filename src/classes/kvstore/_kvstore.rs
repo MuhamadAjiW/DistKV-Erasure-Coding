@@ -17,15 +17,10 @@ pub struct KvStoreModule {
 }
 
 impl KvStoreModule {
-    pub async fn new(
-        db_path: &str,
-        memcached_url: &str,
-        tlog_path: &str,
-        ec: Arc<ECService>,
-    ) -> Self {
+    pub async fn new(db_path: &str, tlog_path: &str, ec: Arc<ECService>) -> Self {
         KvStoreModule {
             persistent: KvPersistent::new(db_path),
-            memory: KvMemory::new(memcached_url).await,
+            memory: KvMemory::new().await,
             transaction_log: KvTransactionLog::new(tlog_path),
             ec,
         }

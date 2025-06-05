@@ -62,10 +62,6 @@ impl Node {
             info!("[INIT] Index: {}", index);
 
             let db_path = &config.nodes[index].rocks_db.path;
-            let memcached_url = format!(
-                "tcp://{}:{}",
-                config.nodes[index].memcached.ip, config.nodes[index].memcached.port
-            );
             let tlog_path = &config.nodes[index].transaction_log;
 
             let ec = Arc::new(ECService::new(
@@ -73,13 +69,7 @@ impl Node {
                 config.storage.shard_count,
                 config.storage.parity_count,
             ));
-            let store = KvStoreModule::new(
-                db_path.as_str(),
-                memcached_url.as_str(),
-                tlog_path.as_str(),
-                ec,
-            )
-            .await;
+            let store = KvStoreModule::new(db_path.as_str(), tlog_path.as_str(), ec).await;
 
             return Node::new(
                 address,
