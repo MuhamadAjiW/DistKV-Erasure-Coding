@@ -11,8 +11,8 @@ impl KvMemory {
     pub async fn new(memcached_url: &str) -> Self {
         let manager = MemcacheConnectionManager::new(memcached_url).unwrap();
         let pool = Pool::builder()
-            .max_size(1000) // Default maximum number of memcached connections is 1024, book 1000 of them
-            .min_idle(1000) // All connections should be taken by the server
+            // .max_size(1000) // Default maximum number of memcached connections is 1024, book 1000 of them
+            // .min_idle(1000) // All connections should be taken by the server
             .build(manager)
             .await
             .unwrap();
