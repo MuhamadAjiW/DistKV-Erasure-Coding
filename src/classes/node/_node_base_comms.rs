@@ -18,7 +18,7 @@ impl Node {
         };
         let leader_addr = &leader_addr as &str;
 
-        _ = send_message(message, leader_addr).await;
+        _ = send_message(message, leader_addr, &self.connection_manager).await;
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -29,6 +29,7 @@ impl Node {
 
         let self_addr = self.address.to_string();
         let message_arc = Arc::new(message);
+        let conn_mgr = Arc::clone(&self.connection_manager);
 
         let mut join_handles = Vec::new();
 
@@ -38,9 +39,10 @@ impl Node {
             }
             let message_clone = Arc::clone(&message_arc);
             let addr_clone = addr.clone();
+            let conn_mgr_clone = Arc::clone(&conn_mgr);
 
             let handle = tokio::spawn(async move {
-                _ = send_message((*message_clone).clone(), &addr_clone).await;
+                _ = send_message((*message_clone).clone(), &addr_clone, &conn_mgr_clone).await;
             });
             join_handles.push(handle);
         }
