@@ -26,14 +26,14 @@ pub async fn receive_message_from_stream(stream: &mut TcpStream) -> io::Result<P
     Ok(message)
 }
 
-/// Send a message using the connection pool (Framed) without expecting a response
+/// Send a message using a new connection (no pooling)
 pub async fn send_message(
     message: PaxosMessage,
     addr: &str,
     conn_mgr: &ConnectionManager,
 ) -> io::Result<()> {
     let peer_conn = conn_mgr
-        .get_or_connect(addr)
+        .connect(addr)
         .await
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     peer_conn
@@ -42,7 +42,7 @@ pub async fn send_message(
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Send failed"))
 }
 
-/// Send a message and receive a response using the connection pool (Framed)
+/// Send a message and receive a response using a new connection (no pooling)
 pub async fn send_message_and_receive_response(
     mut message: PaxosMessage,
     addr: &str,
@@ -86,7 +86,7 @@ pub async fn send_message_and_receive_response(
     }
     let (tx, rx) = oneshot::channel();
     let peer_conn = conn_mgr
-        .get_or_connect(addr)
+        .connect(addr)
         .await
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     peer_conn
@@ -95,19 +95,13 @@ pub async fn send_message_and_receive_response(
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Send failed"))?;
     match timeout(ACK_TIMEOUT, rx).await {
         Ok(Ok(response)) => Ok(response),
-        Ok(Err(_)) => {
-            conn_mgr.remove(addr).await;
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "Transaction channel closed",
-            ))
-        }
-        Err(_) => {
-            conn_mgr.remove(addr).await;
-            Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "Timeout waiting for response",
-            ))
-        }
+        Ok(Err(_)) => Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "Transaction channel closed",
+        )),
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Timeout waiting for response",
+        )),
     }
 }
