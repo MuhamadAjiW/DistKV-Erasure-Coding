@@ -126,7 +126,7 @@ impl Node {
         };
 
         let result = {
-            let mut node = node_data.write().await;
+            let node = node_data.read().await;
             let request_id = node.request_id;
             let result = node
                 .process_request(&operation, request_id)

@@ -209,7 +209,7 @@ impl Node {
         src_addr: &String,
         _stream: TcpStream,
         epoch: u64,
-        commit_id: u64,
+        _commit_id: u64,
     ) {
         if epoch < self.epoch {
             info!(
@@ -240,7 +240,7 @@ impl Node {
         src_addr: &String,
         _stream: TcpStream,
         epoch: u64,
-        commit_id: u64,
+        _commit_id: u64,
     ) {
         if epoch < self.epoch {
             info!(
