@@ -1,4 +1,4 @@
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
@@ -59,11 +59,7 @@ impl Node {
 
         let result = {
             let node = node_data.read().await;
-            let request_id = node.request_id.load(Ordering::SeqCst);
-            let result = node
-                .process_request(&operation, request_id)
-                .await
-                .unwrap_or_default();
+            let result = node.process_request(&operation).await.unwrap_or_default();
 
             result
         };
@@ -93,11 +89,7 @@ impl Node {
 
         let result = {
             let node = node_data.read().await;
-            let request_id = node.request_id.load(Ordering::SeqCst);
-            let result = node
-                .process_request(&operation, request_id)
-                .await
-                .unwrap_or_default();
+            let result = node.process_request(&operation).await.unwrap_or_default();
 
             result
         };
@@ -127,11 +119,7 @@ impl Node {
 
         let result = {
             let node = node_data.read().await;
-            let request_id = node.request_id.load(Ordering::SeqCst);
-            let result = node
-                .process_request(&operation, request_id)
-                .await
-                .unwrap_or_default();
+            let result = node.process_request(&operation).await.unwrap_or_default();
 
             result
         };

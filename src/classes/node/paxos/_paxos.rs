@@ -77,6 +77,14 @@ impl Node {
         epoch: u64,
         commit_id: u64,
     ) -> Result<(), io::Error> {
+        if epoch < self.epoch.load(Ordering::SeqCst) {
+            info!(
+                "[LEARN] Node received a learn request with a lower epoch: {}",
+                epoch
+            );
+            return Ok(());
+        }
+
         if self.state != PaxosState::Follower {
             warn!(
                 "[ERROR] Node received learn request in state {:?}",
@@ -101,6 +109,12 @@ impl Node {
         _ = reply_message(ack, stream).await;
         info!("Follower acknowledged commit ID: {}", commit_id);
 
+        // Sync commit_id if received commit_id is greater
+        let current_commit_id = self.commit_id.load(Ordering::SeqCst);
+        if commit_id > current_commit_id {
+            self.commit_id.store(commit_id, Ordering::SeqCst);
+        }
+
         let leader_addr = &leader_addr as &str;
         if src_addr != leader_addr {
             warn!("[ERROR] Follower received request message from not a leader");
@@ -119,6 +133,14 @@ impl Node {
         request_id: u64,
         operation: &Operation,
     ) -> Result<(), io::Error> {
+        if epoch < self.epoch.load(Ordering::SeqCst) {
+            info!(
+                "[ACCEPT] Node received a leader accept with a lower epoch: {}",
+                epoch
+            );
+            return Ok(());
+        }
+
         if self.state != PaxosState::Follower {
             warn!(
                 "[ERROR] Node received leader accept message in state {:?}",
@@ -149,6 +171,12 @@ impl Node {
         };
         _ = reply_message(ack, stream).await;
         info!("Follower acknowledged request ID: {}", request_id);
+
+        // Sync request_id if received request_id is greater
+        let current_request_id = self.request_id.load(Ordering::SeqCst);
+        if request_id > current_request_id {
+            self.request_id.store(request_id, Ordering::SeqCst);
+        }
 
         // _NOTE: Check log synchronization safety, this could block the whole operation
         // self.synchronize_log(request_id - 1).await;

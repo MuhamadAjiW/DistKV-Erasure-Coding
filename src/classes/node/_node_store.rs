@@ -11,7 +11,7 @@ use super::{_node::Node, paxos::_paxos_state::PaxosState};
 
 impl Node {
     #[instrument(level = "debug", skip_all)]
-    pub async fn process_request(&self, request: &Operation, request_id: u64) -> Option<String> {
+    pub async fn process_request(&self, request: &Operation) -> Option<String> {
         let mut response: Option<String> = None;
 
         match request.op_type {

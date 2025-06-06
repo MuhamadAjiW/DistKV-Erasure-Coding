@@ -48,10 +48,7 @@ impl Node {
                 }
 
                 info!("[REQUEST] Received request: {:?}", operation.op_type);
-                result = self
-                    .process_request(&operation, self.request_id.load(Ordering::SeqCst))
-                    .await
-                    .unwrap_or_default();
+                result = self.process_request(&operation).await.unwrap_or_default();
             }
         }
 
