@@ -307,8 +307,8 @@ impl Node {
                         source,
                     } => {
                         info!(
-                            "[REQUEST] Received ElectionRequest from {}, request id is {}",
-                            source, request_id
+                            "[REQUEST] Received ElectionRequest from {}, epoch is {} request id is {}",
+                            source, epoch, request_id
                         );
                         {
                             let node = node_arc.read().await;

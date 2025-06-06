@@ -15,10 +15,9 @@ impl Node {
         self.epoch.fetch_add(1, Ordering::SeqCst);
         self.vote_count.store(1, Ordering::Relaxed);
 
-        let new_request_id = self.request_id.fetch_add(1, Ordering::SeqCst) + 1;
         let leader_request = PaxosMessage::ElectionRequest {
             epoch: self.epoch.load(Ordering::SeqCst),
-            request_id: new_request_id,
+            request_id: self.request_id.load(Ordering::SeqCst),
             source: self.address.to_string(),
         };
         self.broadcast_message(leader_request).await;

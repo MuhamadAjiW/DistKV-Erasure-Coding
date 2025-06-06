@@ -25,7 +25,7 @@ impl Node {
         epoch: u64,
         request_id: u64,
     ) {
-        if epoch < self.epoch.load(Ordering::SeqCst) {
+        if epoch <= self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[ELECTION] Node received a leader request with a lower epoch: {}",
                 epoch
@@ -33,16 +33,14 @@ impl Node {
             return;
         }
 
-        if epoch > self.epoch.load(Ordering::SeqCst) {
-            info!(
-                "[ELECTION] Node received a leader request with a higher epoch: {}",
-                epoch
-            );
-            self.epoch.store(epoch, Ordering::SeqCst);
+        info!(
+            "[ELECTION] Node received a leader request with a higher epoch: {}",
+            epoch
+        );
+        self.epoch.store(epoch, Ordering::SeqCst);
 
-            if self.state == PaxosState::Leader || self.state == PaxosState::Candidate {
-                self.request_id.store(request_id, Ordering::SeqCst);
-            }
+        if self.state == PaxosState::Leader || self.state == PaxosState::Candidate {
+            self.request_id.store(request_id, Ordering::SeqCst);
         }
 
         match self.state {
