@@ -1,14 +1,7 @@
 use std::{io, sync::Arc};
 
 use distkv::{
-    base_libs::{
-        _operation::Operation,
-        _paxos_types::PaxosMessage,
-        network::{
-            _address::Address,
-            _messages::{receive_string, send_message},
-        },
-    },
+    base_libs::{_operation::Operation, network::_address::Address},
     classes::node::_node::Node,
 };
 use tokio::sync::RwLock;
@@ -106,57 +99,54 @@ async fn main() -> Result<(), io::Error> {
             count,
             trace,
         } => {
-            info!("Client starting...");
-
             if *trace {
-                info!("[INIT] Tracing enabled");
-                let subscriber = tracing_subscriber::fmt()
-                    .with_max_level(tracing::Level::DEBUG)
-                    .with_file(true)
-                    .with_target(false)
-                    .with_ansi(false)
-                    .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
-                    .finish();
-
+                let subscriber = tracing_subscriber::fmt().finish();
                 tracing::subscriber::set_global_default(subscriber)
                     .expect("Failed to set global default subscriber");
-            } else {
-                info!("[INIT] Tracing disabled");
             }
 
-            let mut operation_bytes = op.as_bytes().to_vec();
-
+            // Build the operation string
+            let mut operation_str = op.clone();
             if op.starts_with("SET") {
                 if let Some(data_to_repeat) = data {
-                    let mut repeated_data = data_to_repeat.repeat(*count).as_bytes().to_vec();
-                    operation_bytes.append(&mut repeated_data);
-                } else {
-                    error!("Error: 'SET' operation requires '--data' argument.");
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "SET operation requires data",
-                    ));
+                    let repeated = data_to_repeat.repeat(*count);
+                    operation_str = format!("{} {}", op, repeated);
                 }
             }
+            let operation = Operation::from_string(&operation_str);
 
-            let operation = Operation::parse(&operation_bytes).unwrap();
-            match send_message(
-                PaxosMessage::ClientRequest {
-                    operation,
-                    source: "CLIENT".to_string(),
-                },
-                node_addr,
-            )
-            .await
-            {
-                Ok(stream) => {
-                    let response = receive_string(stream).await.unwrap().1;
-                    info!("Reply: {}", response);
-                }
-                Err(e) => {
-                    error!("Failed to send message: {}", e);
-                }
-            }
+            // Send the operation to the node (TCP client)
+            use bincode;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            use tokio::net::TcpStream;
+
+            let mut stream = TcpStream::connect(node_addr)
+                .await
+                .expect("Failed to connect to node");
+            let serialized = bincode::serialize(&operation).unwrap();
+            stream
+                .write_all(&(serialized.len() as u32).to_be_bytes())
+                .await
+                .expect("Failed to write length");
+            stream
+                .write_all(&serialized)
+                .await
+                .expect("Failed to write operation");
+
+            // Read response (assuming a simple string reply)
+            let mut len_buf = [0u8; 4];
+            stream
+                .read_exact(&mut len_buf)
+                .await
+                .expect("Failed to read response length");
+            let len = u32::from_be_bytes(len_buf) as usize;
+            let mut buffer = vec![0; len];
+            stream
+                .read_exact(&mut buffer)
+                .await
+                .expect("Failed to read response");
+            let response = String::from_utf8_lossy(&buffer);
+            println!("Response: {}", response);
         }
     }
 

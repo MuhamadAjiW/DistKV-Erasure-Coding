@@ -2,7 +2,7 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperationType {
     BAD,
     PING,
@@ -27,13 +27,13 @@ impl fmt::Display for OperationType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Operation {
     pub op_type: OperationType,
     pub kv: BinKV,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BinKV {
     pub key: String,
     pub value: Vec<u8>,
@@ -163,4 +163,9 @@ impl fmt::Display for Operation {
             String::from_utf8_lossy(&self.kv.value)
         )
     }
+}
+
+// Implement Entry for Operation for Omnipaxos
+impl omnipaxos::storage::Entry for Operation {
+    type Snapshot = omnipaxos::storage::NoSnapshot;
 }
