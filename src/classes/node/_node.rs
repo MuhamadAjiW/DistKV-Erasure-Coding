@@ -1,6 +1,9 @@
 use core::panic;
 use std::{
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -36,9 +39,9 @@ pub struct Node {
     pub cluster_list: Arc<RwLock<Vec<String>>>,
     pub cluster_index: usize,
     pub state: PaxosState,
-    pub epoch: u64,
-    pub request_id: u64,
-    pub commit_id: u64,
+    pub epoch: AtomicU64,
+    pub request_id: AtomicU64,
+    pub commit_id: AtomicU64,
     pub last_heartbeat: Arc<RwLock<Instant>>,
     pub timeout_duration: Arc<Duration>,
     pub vote_count: AtomicUsize,
@@ -121,9 +124,9 @@ impl Node {
             cluster_list: Arc::new(RwLock::new(cluster_list)),
             cluster_index,
             state: PaxosState::Follower,
-            epoch: 0,
-            request_id: 0,
-            commit_id: 0,
+            epoch: std::sync::atomic::AtomicU64::new(0),
+            request_id: std::sync::atomic::AtomicU64::new(0),
+            commit_id: std::sync::atomic::AtomicU64::new(0),
             last_heartbeat: Arc::new(RwLock::new(Instant::now())),
             timeout_duration,
             vote_count: AtomicUsize::new(0),
@@ -147,8 +150,9 @@ impl Node {
         }
         info!("Cluster list: {:?}", &self.cluster_list.read().await);
         info!("Cluster index: {}", &self.cluster_index);
-        info!("Request ID: {}", &self.request_id);
-        info!("Commit ID: {}", &self.commit_id);
+        info!("Epoch: {:?}", self.epoch.load(Ordering::SeqCst));
+        info!("Request ID: {:?}", self.request_id.load(Ordering::SeqCst));
+        info!("Commit ID: {:?}", self.commit_id.load(Ordering::SeqCst));
         info!("Last heartbeat: {:?}", &self.last_heartbeat.read().await);
         info!("Timeout duration: {:?}", &self.timeout_duration);
 

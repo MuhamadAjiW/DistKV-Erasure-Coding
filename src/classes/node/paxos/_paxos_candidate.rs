@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use tokio::io;
 use tracing::info;
 
@@ -10,13 +12,13 @@ impl Node {
     pub async fn start_leader_election(&mut self) -> Result<(), io::Error> {
         info!("[ELECTION] Starting leader election");
 
-        self.epoch += 1;
-        self.vote_count
-            .store(1, std::sync::atomic::Ordering::Relaxed);
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.vote_count.store(1, Ordering::Relaxed);
 
+        let new_request_id = self.request_id.fetch_add(1, Ordering::SeqCst) + 1;
         let leader_request = PaxosMessage::ElectionRequest {
-            epoch: self.epoch,
-            request_id: self.request_id,
+            epoch: self.epoch.load(Ordering::SeqCst),
+            request_id: new_request_id,
             source: self.address.to_string(),
         };
         self.broadcast_message(leader_request).await;
@@ -30,8 +32,8 @@ impl Node {
         self.leader_address = Some(self.address.clone());
 
         let leader_declaration = PaxosMessage::LeaderDeclaration {
-            epoch: self.epoch,
-            commit_id: self.request_id,
+            epoch: self.epoch.load(Ordering::SeqCst),
+            commit_id: self.commit_id.load(Ordering::SeqCst),
             source: self.address.to_string(),
         };
         self.broadcast_message(leader_declaration).await;

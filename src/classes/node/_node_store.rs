@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use tracing::{error, info, instrument};
 
 use crate::base_libs::{
@@ -36,8 +38,8 @@ impl Node {
                     response = Some("FORWARDED".to_string());
                 }
                 PaxosState::Leader => {
-                    // TODO: Separate accept and learn
-                    if self.accept_value(&request, request_id).await {
+                    let new_request_id = self.request_id.fetch_add(1, Ordering::SeqCst) + 1;
+                    if self.accept_value(&request, new_request_id).await {
                         response = Some("OK".to_string());
                     } else {
                         response = Some("FAILED".to_string());
@@ -118,13 +120,14 @@ impl Node {
     }
 
     pub async fn synchronize_log(&mut self, new_commit_id: u64) {
-        let old_commit_id = self.commit_id;
-        self.commit_id = std::cmp::max(self.commit_id, new_commit_id);
+        let old_commit_id = self.commit_id.load(Ordering::SeqCst);
+        let max_commit_id = std::cmp::max(old_commit_id, new_commit_id);
+        self.commit_id.store(max_commit_id, Ordering::SeqCst);
 
-        if self.commit_id > old_commit_id {
+        if max_commit_id > old_commit_id {
             info!(
-                "[ELECTION] Node updated commit ID from {} to {}",
-                old_commit_id, self.commit_id
+                "[ELECTION] Node updated commit ID from {:?} to {:?}",
+                old_commit_id, max_commit_id
             );
         }
 

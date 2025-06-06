@@ -44,12 +44,12 @@ impl Node {
             }
             OperationType::GET | OperationType::DELETE | OperationType::SET => {
                 if self.state == PaxosState::Leader {
-                    self.request_id += 1;
+                    self.request_id.fetch_add(1, Ordering::SeqCst);
                 }
 
                 info!("[REQUEST] Received request: {:?}", operation.op_type);
                 result = self
-                    .process_request(&operation, self.request_id)
+                    .process_request(&operation, self.request_id.load(Ordering::SeqCst))
                     .await
                     .unwrap_or_default();
             }
@@ -89,7 +89,7 @@ impl Node {
         let mut acks = 1;
         let mut tasks = JoinSet::new();
         let source = Arc::new(self.address.clone());
-        let epoch = Arc::new(self.epoch.clone());
+        let epoch = self.epoch.load(Ordering::SeqCst);
 
         for follower_addr in follower_list.iter() {
             if follower_addr == self.address.to_string().as_str() {
@@ -98,14 +98,14 @@ impl Node {
 
             let source = Arc::clone(&source);
             let follower_addr = follower_addr.clone();
-            let request_id = self.request_id.clone();
-            let epoch = Arc::clone(&epoch);
+            let request_id = self.request_id.load(Ordering::SeqCst);
+            let epoch = epoch; // already a u64
 
             tasks.spawn(async move {
                 // Send the request to the follower
                 let stream = send_message(
                     PaxosMessage::LearnRequest {
-                        epoch: (*epoch).clone(),
+                        epoch,
                         commit_id: request_id,
                         source: source.to_string(),
                     },
@@ -173,7 +173,7 @@ impl Node {
         let source = Arc::new(self.address.clone().to_string());
         let leader_addr = self.address.to_string();
         let commit_id = Arc::new(commit_id);
-        let epoch = Arc::new(self.epoch.clone());
+        let epoch = self.epoch.load(Ordering::SeqCst);
         let shared_op_type = Arc::new(operation.op_type.clone());
         let shared_key = Arc::new(operation.kv.key.clone());
         let shared_encoded_shards = Arc::new(encoded_shard.clone());
@@ -185,11 +185,11 @@ impl Node {
 
             let follower_addr = follower_addr.clone();
             let source = Arc::clone(&source);
-            let commit_id = Arc::clone(&commit_id);
-            let epoch = Arc::clone(&epoch);
+            let commit_id = commit_id.clone();
             let op_type = Arc::clone(&shared_op_type);
             let key = Arc::clone(&shared_key);
             let encoded_shard_arc = Arc::clone(&shared_encoded_shards);
+            let epoch = epoch;
 
             tasks.spawn(async move {
                 let sent_shard = encoded_shard_arc[index].clone();
@@ -204,8 +204,8 @@ impl Node {
                 // Send the request to the follower
                 let stream = send_message(
                     PaxosMessage::AcceptRequest {
-                        epoch: (*epoch).clone(),
-                        request_id: (*commit_id).clone(),
+                        epoch,
+                        request_id: *commit_id,
                         operation: sent_operation,
                         source: (*source).clone(),
                     },
@@ -287,8 +287,8 @@ impl Node {
 
             let follower_addr = follower_addr.clone();
             let source = Arc::clone(&source);
-            let commit_id = Arc::clone(&commit_id);
-            let epoch = Arc::new(self.epoch.clone());
+            let commit_id = commit_id.clone();
+            let epoch = self.epoch.load(Ordering::SeqCst);
             let source = Arc::clone(&source);
             let operation = Arc::clone(&operation);
 
@@ -296,8 +296,8 @@ impl Node {
                 // Send the request to the follower
                 let stream = send_message(
                     PaxosMessage::AcceptRequest {
-                        epoch: (*epoch).clone(),
-                        request_id: (*commit_id).clone(),
+                        epoch,
+                        request_id: *commit_id,
                         operation: (*operation).clone(),
                         source: source.to_string(),
                     },

@@ -25,7 +25,7 @@ impl Node {
         epoch: u64,
         request_id: u64,
     ) {
-        if epoch < self.epoch {
+        if epoch < self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[ELECTION] Node received a leader request with a lower epoch: {}",
                 epoch
@@ -33,29 +33,27 @@ impl Node {
             return;
         }
 
-        if epoch > self.epoch {
+        if epoch > self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[ELECTION] Node received a leader request with a higher epoch: {}",
                 epoch
             );
-            self.epoch = epoch;
+            self.epoch.store(epoch, Ordering::SeqCst);
 
             if self.state == PaxosState::Leader || self.state == PaxosState::Candidate {
-                self.state = PaxosState::Follower;
-                self.vote_count.store(0, Ordering::SeqCst);
-                self.leader_address = None;
+                self.request_id.store(request_id, Ordering::SeqCst);
             }
         }
 
         match self.state {
             PaxosState::Follower => {
-                if request_id > self.request_id {
-                    self.request_id = request_id
+                if request_id > self.request_id.load(Ordering::SeqCst) {
+                    self.request_id.store(request_id, Ordering::SeqCst)
                 }
 
                 let _ = send_message(
                     PaxosMessage::LeaderVote {
-                        epoch: self.epoch,
+                        epoch: self.epoch.load(Ordering::SeqCst),
                         source: self.address.to_string(),
                     },
                     &source,
@@ -96,8 +94,8 @@ impl Node {
 
         info!("Follower received learn request message from leader");
         let ack = PaxosMessage::Ack {
-            request_id: commit_id,
-            epoch,
+            epoch: self.epoch.load(Ordering::SeqCst),
+            request_id: self.request_id.load(Ordering::SeqCst),
             source: self.address.to_string(),
         };
         _ = reply_message(ack, stream).await;
@@ -145,8 +143,8 @@ impl Node {
 
         info!("Follower received leader accept message from leader",);
         let ack = PaxosMessage::Ack {
-            epoch,
-            request_id,
+            epoch: self.epoch.load(Ordering::SeqCst),
+            request_id: self.request_id.load(Ordering::SeqCst),
             source: self.address.to_string(),
         };
         _ = reply_message(ack, stream).await;
@@ -197,7 +195,7 @@ impl Node {
 
         let quorum = self.cluster_list.read().await.len() / 2;
 
-        if self.vote_count.load(std::sync::atomic::Ordering::SeqCst) > quorum {
+        if self.vote_count.load(Ordering::SeqCst) > quorum {
             info!("[ELECTION] Received quorum votes, declaring leader");
             self.declare_leader().await;
         }
@@ -210,7 +208,7 @@ impl Node {
         epoch: u64,
         _commit_id: u64,
     ) {
-        if epoch < self.epoch {
+        if epoch < self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[ELECTION] Node received a leader declaration with a lower epoch: {}",
                 epoch
@@ -218,12 +216,12 @@ impl Node {
             return;
         }
 
-        if epoch > self.epoch {
+        if epoch > self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[ELECTION] Node received a leader declaration with a higher epoch: {}",
                 epoch
             );
-            self.epoch = epoch;
+            self.epoch.store(epoch, Ordering::SeqCst);
             self.vote_count.store(0, Ordering::SeqCst);
         }
 
@@ -241,7 +239,7 @@ impl Node {
         epoch: u64,
         _commit_id: u64,
     ) {
-        if epoch < self.epoch {
+        if epoch < self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[HEARTBEAT] Node received a heartbeat with a lower epoch: {}",
                 epoch
@@ -249,12 +247,12 @@ impl Node {
             return;
         }
 
-        if epoch > self.epoch {
+        if epoch > self.epoch.load(Ordering::SeqCst) {
             info!(
                 "[HEARTBEAT] Node received a heartbeat with a higher epoch: {}",
                 epoch
             );
-            self.epoch = epoch;
+            self.epoch.store(epoch, Ordering::SeqCst);
             self.vote_count.store(0, Ordering::SeqCst);
         }
 
