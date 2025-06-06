@@ -39,6 +39,10 @@ impl Node {
                 }
                 PaxosState::Leader => {
                     let new_request_id = self.request_id.fetch_add(1, Ordering::SeqCst) + 1;
+                    info!(
+                        "[REQUEST] Leader processing request with ID: {}",
+                        new_request_id
+                    );
                     if self.accept_value(&request, new_request_id).await {
                         response = Some("OK".to_string());
                     } else {

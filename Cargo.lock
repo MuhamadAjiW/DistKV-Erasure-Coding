@@ -702,6 +702,8 @@ dependencies = [
  "bincode",
  "clap",
  "moka",
+ "omnipaxos",
+ "omnipaxos_storage",
  "predicates 0.3.0",
  "rand 0.8.5",
  "reed-solomon-erasure",
@@ -1514,6 +1516,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aedf0a2d09c573ed1d8d85b30c119153926a2b36dce0ab28322c09a117a4683e"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "omnipaxos"
+version = "0.2.2"
+dependencies = [
+ "omnipaxos_macros",
+ "serde",
+]
+
+[[package]]
+name = "omnipaxos_macros"
+version = "0.1.3"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "omnipaxos_storage"
+version = "0.2.2"
+dependencies = [
+ "omnipaxos",
 ]
 
 [[package]]
