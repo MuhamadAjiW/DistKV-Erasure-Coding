@@ -28,3 +28,4 @@ omnipaxos = { path = "./omnipaxos/omnipaxos", features = ["macros", "logging"] }
 omnipaxos_storage = { path = "./omnipaxos/omnipaxos_storage", features = [
   "persistent_storage",
 ] }
+rand = "0.9.1"

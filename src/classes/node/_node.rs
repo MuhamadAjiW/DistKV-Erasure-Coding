@@ -2,8 +2,6 @@ use core::panic;
 use std::sync::{Arc, Mutex};
 
 use actix_web::{web, App, HttpServer};
-use omnipaxos::erasure::log_entry::OperationType;
-use omnipaxos::util::LogEntry;
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use tokio::sync::{mpsc, oneshot};
 use tokio::{net::TcpListener, sync::RwLock};
@@ -11,6 +9,7 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::base_libs::_ec::ECKeyValue;
 use crate::base_libs::network::_messages::receive_omnipaxos_message;
+use crate::config::_constants::ELECTION_TICK_TIMEOUT;
 use crate::{
     base_libs::{
         _types::{OmniPaxosECKV, OmniPaxosECMessage},
@@ -59,20 +58,31 @@ impl Node {
     pub async fn from_config(address: Address, config_path: &str) -> Self {
         let config = Config::get_config(config_path).await;
         let index = Config::get_node_index(&config, &address);
-        let cluster_list: Vec<String> = Config::get_node_addresses(&config)
+        let mut cluster_list: Vec<String> = Config::get_node_addresses(&config)
             .iter()
             .map(|a| a.to_string())
             .collect();
+        cluster_list.sort(); // Ensure deterministic order
+        info!("[INIT] Cluster list (sorted): {:?}", cluster_list);
         if let Some(index) = index {
+            info!("[INIT] This node index: {} (NodeId: {})", index, index + 1);
             let node_conf = &config.nodes[index];
             let http_address = Address::new(&node_conf.ip, node_conf.http_port);
+
+            // Build NodeIds from sorted cluster_list
+            let nodes: Vec<u64> = cluster_list
+                .iter()
+                .enumerate()
+                .map(|(i, _)| (i + 1) as u64)
+                .collect();
             let cluster_config = ClusterConfigEC {
                 configuration_id: 1,
-                nodes: (0..config.nodes.len()).map(|i| (i + 1) as u64).collect(),
+                nodes,
                 flexible_quorum: None,
             };
             let server_config = ServerConfigEC {
                 pid: (index + 1) as u64,
+                election_tick_timeout: ELECTION_TICK_TIMEOUT,
                 erasure_coding_service: ECService::new(
                     config.storage.shard_count,
                     config.storage.parity_count,
@@ -125,52 +135,88 @@ impl Node {
                 }
             }
         };
-        let (omnipaxos_sender, _omnipaxos_receiver) = mpsc::channel(128);
+        let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(128);
         let omnipaxos_arc = Arc::new(Mutex::new(omnipaxos));
-        // Spawn OmniPaxos main event loop (no tick or outgoing message logic here)
-        // let omnipaxos_clone = omnipaxos_arc.clone();
-        // tokio::spawn(async move {
-        //     loop {
-        //         match omnipaxos_receiver.recv().await {
-        //             Some(req) => {
-        //                 match req {
-        //                     OmniPaxosRequest::Client { entry, response } => {
-        //                         debug!("[CLIENT] Proposing entry: {:?}", entry);
-        //                         let op_type = entry.op.clone();
-        //                         let key = entry.key.clone();
-        //                         // Only hold the lock for append
-        //                         let append_res = {
-        //                             let mut omni = omnipaxos_clone.lock().unwrap();
-        //                             omni.append(entry)
-        //                         };
-        //                         if let Err(e) = append_res {
-        //                             error!("[CLIENT] Failed to append entry: {:?}", e);
-        //                         }
-        //                         // Now poll for result without holding the lock across await
-        //                         let result = match op_type {
-        //                             OperationType::GET => { /* ... */ }
-        //                             OperationType::SET => { /* ... */ }
-        //                             OperationType::DELETE => { /* ... */ }
-        //                             _ => {
-        //                                 error!("[CLIENT] Unsupported operation");
-        //                                 "Unsupported operation".to_string()
-        //                             }
-        //                         };
-        //                         let _ = response.send(result);
-        //                     }
-        //                     OmniPaxosRequest::Network { message } => {
-        //                         let mut omni = omnipaxos_clone.lock().unwrap();
-        //                         omni.handle_incoming(message);
-        //                     }
-        //                 }
-        //             }
-        //             None => {
-        //                 error!("[FLOW] OmniPaxosRequest channel closed");
-        //                 break;
-        //             }
-        //         }
-        //     }
-        // });
+        // Spawn OmniPaxos main event loop (handles incoming network messages and ticks)
+        let omnipaxos_clone = omnipaxos_arc.clone();
+        let peer_addresses = {
+            let mut map = std::collections::HashMap::new();
+            for (i, addr) in cluster_list.iter().enumerate() {
+                map.insert((i + 1) as u64, addr.clone());
+            }
+            map
+        };
+        // Generate random jitter before entering async block to avoid Send issues
+        let jitter_ms = {
+            use rand::Rng;
+            rand::rng().random_range(0..1000)
+        };
+        tokio::spawn(async move {
+            debug!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
+            tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
+            let mut tick_interval = tokio::time::interval(std::time::Duration::from_millis(200));
+            let mut msg_buffer = Vec::with_capacity(32);
+            loop {
+                tokio::select! {
+                    biased;
+                    Some(req) = omnipaxos_receiver.recv() => {
+                        let mut send_msgs = Vec::new();
+                        match req {
+                            OmniPaxosRequest::Network { message } => {
+                                debug!("[OMNIPAXOS] Incoming BLE message: from {:?} to {:?} (msg: {:?})", message.get_sender(), message.get_receiver(), message);
+                                {
+                                    let mut omni = omnipaxos_clone.lock().unwrap();
+                                    debug!("[OMNIPAXOS] Handling incoming network message: {:?}", message);
+                                    omni.handle_incoming(message);
+                                    omni.take_outgoing_messages(&mut msg_buffer);
+                                } // MutexGuard dropped here
+                                send_msgs.append(&mut msg_buffer);
+                            }
+                            OmniPaxosRequest::Client { .. } => {
+                                // Client requests are ignored/commented for now
+                            }
+                        }
+                        for msg in send_msgs.drain(..) {
+                            let receiver = msg.get_receiver();
+                            let sender = msg.get_sender();
+                            if let Some(addr) = peer_addresses.get(&receiver) {
+                                debug!("[OMNIPAXOS] Outgoing BLE message: from {:?} to {:?} at {} (msg: {:?})", sender, receiver, addr, msg);
+                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(msg, addr, None).await;
+                            } else {
+                                debug!("[OMNIPAXOS] No peer address for receiver {}", receiver);
+                            }
+                        }
+                    }
+                    _ = tick_interval.tick() => {
+                        let mut send_msgs = Vec::new();
+                        {
+                            let mut omni = omnipaxos_clone.lock().unwrap();
+                            debug!("[OMNIPAXOS] Tick");
+                            omni.tick();
+                            if let Some((leader, _)) = omni.get_current_leader() {
+                                debug!("[OMNIPAXOS] Current leader: {}", leader);
+                            }
+                            omni.take_outgoing_messages(&mut msg_buffer);
+                        } // MutexGuard dropped here
+                        send_msgs.append(&mut msg_buffer);
+                        for msg in send_msgs.drain(..) {
+                            let receiver = msg.get_receiver();
+                            if let Some(addr) = peer_addresses.get(&receiver) {
+                                debug!("[OMNIPAXOS] Sending outgoing BLE message to {} at {}: {:?}", receiver, addr, msg);
+                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(msg, addr, None).await;
+                            } else {
+                                debug!("[OMNIPAXOS] No peer address for receiver {}", receiver);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        info!(
+            "[INIT] NodeId: {} | Cluster list: {:?}",
+            cluster_index + 1,
+            cluster_list
+        );
         Node {
             running: true,
             http_address,
@@ -206,11 +252,17 @@ impl Node {
             loop {
                 match receive_omnipaxos_message(&socket).await {
                     Ok((_stream, message)) => {
+                        debug!("[TCP] Received message: {:?}", message);
                         let node = node_arc.read().await;
-                        // let _ = node
-                        //     .omnipaxos_sender
-                        //     .send(OmniPaxosRequest::Network { message })
-                        //     .await;
+                        let send_result = node
+                            .omnipaxos_sender
+                            .send(OmniPaxosRequest::Network { message })
+                            .await;
+                        if let Err(e) = send_result {
+                            error!("[TCP] Failed to forward message to OmniPaxos: {}", e);
+                        } else {
+                            debug!("[TCP] Forwarded message to OmniPaxos event loop");
+                        }
                     }
                     Err(e) => {
                         warn!("[TCP] Error receiving message: {}", e);
@@ -285,11 +337,13 @@ impl Node {
         // Build peer_addresses: NodeId -> String ("ip:port")
         let (my_pid, peer_addresses) = {
             let node = node_arc.read().await;
-            let cluster_list = node.cluster_list.read().await;
+            let mut cluster_list = node.cluster_list.read().await.clone();
+            cluster_list.sort(); // Ensure deterministic order
             let mut map = HashMap::new();
             for (i, addr) in cluster_list.iter().enumerate() {
                 map.insert((i + 1) as NodeId, addr.clone());
             }
+            info!("[INIT] Peer address map: {:?}", map);
             ((node.cluster_index + 1) as NodeId, map)
         };
 
