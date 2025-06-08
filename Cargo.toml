@@ -18,14 +18,13 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
 serde_json = "1.0"
-rand = "0.8"
-reed-solomon-erasure = { version = "6.0", features = ["simd-accel"] }
-rust-rocksdb = "0.23.2"
 actix-web = "4.10.2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-appender = "0.2"
 clap = { version = "4", features = ["derive"] }
 moka = { version = "0.12", features = ["future"] }
-omnipaxos = { path = "omnipaxos/omnipaxos" }
-omnipaxos_storage = { path = "omnipaxos/omnipaxos_storage" }
+omnipaxos = { path = "./omnipaxos/omnipaxos", features = ["macros"] }
+omnipaxos_storage = { path = "./omnipaxos/omnipaxos_storage", features = [
+  "persistent_storage",
+] }
