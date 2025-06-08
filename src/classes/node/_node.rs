@@ -2,7 +2,6 @@ use core::panic;
 use std::sync::Arc;
 
 use actix_web::{web, App, HttpServer};
-use bincode::de;
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use tokio::sync::{mpsc, oneshot};
 use tokio::{net::TcpListener, sync::RwLock};
@@ -334,26 +333,53 @@ impl Node {
 
     #[instrument(level = "debug", skip_all)]
     pub fn run_http_loop(node_arc: Arc<RwLock<Node>>) {
-        let http_addr = {
-            let node = node_arc.blocking_read();
-            node.http_address.to_string()
-        };
-        debug!("[HTTP] Starting HTTP server on {}", http_addr);
-        let data = web::Data::new(node_arc.clone());
-        tokio::spawn(async move {
-            HttpServer::new(move || {
-                App::new()
-                    .app_data(data.clone())
-                    .route("/health", web::get().to(Self::http_healthcheck))
-                    .route("/get", web::post().to(Self::http_get))
-                    .route("/put", web::post().to(Self::http_put))
-                    .route("/delete", web::post().to(Self::http_delete))
+        info!("[INIT] Starting HTTP loop...");
+
+        // Actix web is not compatible with tokio spawn
+        std::thread::spawn(move || {
+            let sys = actix_web::rt::System::new();
+
+            sys.block_on(async move {
+                let (address, max_payload) = {
+                    let node = node_arc.read().await;
+                    (node.http_address.clone(), node.http_max_payload.clone())
+                };
+
+                info!(
+                    "[INIT] Starting HTTP server on {}:{}",
+                    address.ip, address.port
+                );
+
+                let http_server = loop {
+                    let node_arc_clone = node_arc.clone();
+                    match HttpServer::new(move || {
+                        App::new()
+                            .app_data(web::Data::new(node_arc_clone.clone()))
+                            .app_data(web::PayloadConfig::new(max_payload))
+                            .app_data(web::JsonConfig::default().limit(max_payload))
+                            .route("/health", web::get().to(Node::http_healthcheck))
+                            .route("/get", web::post().to(Node::http_get))
+                            .route("/put", web::post().to(Node::http_put))
+                            .route("/delete", web::post().to(Node::http_delete))
+                    })
+                    .bind((address.ip.as_str(), address.port))
+                    {
+                        Ok(server) => break server,
+                        Err(e) => {
+                            error!(
+                                "[INIT] Failed to bind HTTP server to {}:{}: {}. Retrying in 1s...",
+                                address.ip, address.port, e
+                            );
+                            std::thread::sleep(RECONNECT_INTERVAL);
+                        }
+                    }
+                };
+
+                http_server
+                    .run()
+                    .await
+                    .expect("[ERROR] Actix server crashed");
             })
-            .bind(http_addr)
-            .unwrap()
-            .run()
-            .await
-            .unwrap();
         });
     }
 
