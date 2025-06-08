@@ -1,28 +1,29 @@
-use std::sync::Arc;
-
+use crate::base_libs::_ec::ECKeyValue;
+use crate::classes::node::_node::OmniPaxosRequest;
 use actix_web::{web, HttpResponse, Responder};
+use omnipaxos::erasure::ec_service::EntryFragment;
+use omnipaxos::erasure::log_entry::OperationType;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
-
-use crate::base_libs::_operation::{BinKV, Operation, OperationType};
 
 use super::_node::Node;
 
 #[derive(Deserialize)]
 pub struct GetBody {
-    key: String,
+    pub key: String,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct PostBody {
-    key: String,
-    value: String,
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct DeleteBody {
-    key: String,
+    pub key: String,
 }
 
 #[derive(Serialize)]
@@ -48,27 +49,25 @@ impl Node {
         body: web::Json<GetBody>,
     ) -> impl Responder {
         info!("[REQUEST] GET request received");
-
-        let operation = Operation {
-            op_type: OperationType::GET,
-            kv: BinKV {
-                key: body.key.clone(),
-                value: vec![],
-            },
+        let ec_entry = ECKeyValue {
+            key: body.key.clone(),
+            fragment: EntryFragment::default(),
+            op: OperationType::GET,
         };
-
-        let result = {
-            let node = node_data.read().await;
-            let result = node.process_request(&operation).await.unwrap_or_default();
-
-            result
-        };
-
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let node = node_data.read().await;
+        let _ = node
+            .omnipaxos_sender
+            .send(OmniPaxosRequest::Client {
+                entry: ec_entry,
+                response: tx,
+            })
+            .await;
+        let result = rx.await.unwrap_or_else(|_| "No response".to_string());
         let response = BaseResponse {
             key: body.key.clone(),
             response: result,
         };
-
         HttpResponse::Ok().json(response)
     }
 
@@ -78,27 +77,25 @@ impl Node {
         body: web::Json<PostBody>,
     ) -> impl Responder {
         info!("[REQUEST] POST request received");
-
-        let operation = Operation {
-            op_type: OperationType::SET,
-            kv: BinKV {
-                key: body.key.clone(),
-                value: body.value.clone().into_bytes(),
-            },
+        let ec_entry = ECKeyValue {
+            key: body.key.clone(),
+            fragment: EntryFragment::for_request(body.value.clone().into_bytes()),
+            op: OperationType::SET,
         };
-
-        let result = {
-            let node = node_data.read().await;
-            let result = node.process_request(&operation).await.unwrap_or_default();
-
-            result
-        };
-
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let node = node_data.read().await;
+        let _ = node
+            .omnipaxos_sender
+            .send(OmniPaxosRequest::Client {
+                entry: ec_entry,
+                response: tx,
+            })
+            .await;
+        let result = rx.await.unwrap_or_else(|_| "No response".to_string());
         let response = BaseResponse {
             key: body.key.clone(),
             response: result,
         };
-
         HttpResponse::Ok().json(response)
     }
 
@@ -108,27 +105,25 @@ impl Node {
         body: web::Json<DeleteBody>,
     ) -> impl Responder {
         info!("[REQUEST] DELETE request received");
-
-        let operation = Operation {
-            op_type: OperationType::DELETE,
-            kv: BinKV {
-                key: body.key.clone(),
-                value: vec![],
-            },
+        let ec_entry = ECKeyValue {
+            key: body.key.clone(),
+            fragment: EntryFragment::default(),
+            op: OperationType::DELETE,
         };
-
-        let result = {
-            let node = node_data.read().await;
-            let result = node.process_request(&operation).await.unwrap_or_default();
-
-            result
-        };
-
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let node = node_data.read().await;
+        let _ = node
+            .omnipaxos_sender
+            .send(OmniPaxosRequest::Client {
+                entry: ec_entry,
+                response: tx,
+            })
+            .await;
+        let result = rx.await.unwrap_or_else(|_| "No response".to_string());
         let response = BaseResponse {
             key: body.key.clone(),
             response: result,
         };
-
         HttpResponse::Ok().json(response)
     }
 }

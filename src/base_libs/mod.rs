@@ -1,3 +1,3 @@
-pub mod _operation;
-pub mod _paxos_types;
+pub mod _ec;
+pub mod _types;
 pub mod network;

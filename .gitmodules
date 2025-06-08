@@ -1,0 +1,3 @@
+[submodule "omnipaxos"]
+	path = omnipaxos
+	url = https://github.com/MuhamadAjiW/omnipaxos.git

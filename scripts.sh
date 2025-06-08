@@ -131,17 +131,17 @@ run_node() {
         echo "Starting node on ${addr} with config ${config_file} and tracing disabled..."
     fi
     
-    local cmd="cargo run --release -- node --addr ${addr} --conf ${config_file} ${file_output} ${trace}"
+    local cmd="cargo run --release -- --addr ${addr} --conf ${config_file} ${file_output} ${trace}"
 
     if [ -n "$file_output" ]; then
         local log_dir="./log"
         mkdir -p "$log_dir"
         local log_file="${log_dir}/node_${addr//:/_}.log"
         echo "Logging to file: ${log_file}"
-        cargo run --release -- node --addr ${addr} --conf ${config_file} ${trace} > "${log_file}"
+        cargo run --release -- --addr ${addr} --conf ${config_file} ${trace} > "${log_file}"
     else
         echo "Logging to terminal"
-        cargo run --release -- node --addr ${addr} --conf ${config_file} ${trace}
+        cargo run --release -- --addr ${addr} --conf ${config_file} ${trace}
     fi
 }
 
@@ -222,7 +222,7 @@ run_all() {
 
 virtual_users=(
     # 1 5 10 25 50 100
-    1
+    10
 )
 
 size=(

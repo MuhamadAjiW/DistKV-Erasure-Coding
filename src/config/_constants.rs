@@ -1,5 +1,11 @@
 use std::time::Duration;
 
-pub const STOP_INTERVAL: Duration = Duration::from_secs(1); // How long to wait before trying to stop the node
-pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(1); // How long to wait before trying to reconnect
-pub const ACK_TIMEOUT: Duration = Duration::from_secs(10); // Max time to wait for acknowledgment
+pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
+
+pub const BUFFER_SIZE: usize = 10000;
+pub const ELECTION_TICK_TIMEOUT: u64 = 5;
+pub const TICK_PERIOD: Duration = Duration::from_millis(10);
+pub const OUTGOING_MESSAGE_PERIOD: Duration = Duration::from_millis(1);
+
+pub const WAIT_LEADER_TIMEOUT: Duration = Duration::from_millis(500);
+pub const WAIT_DECIDED_TIMEOUT: Duration = Duration::from_millis(50);

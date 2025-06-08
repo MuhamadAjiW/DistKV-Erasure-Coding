@@ -1,26 +1,36 @@
 use core::panic;
-use std::{
-    sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::sync::Arc;
 
 use actix_web::{web, App, HttpServer};
-use tokio::{net::TcpListener, sync::RwLock, time::Instant};
-use tracing::{error, info, instrument, warn};
+use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
+use tokio::sync::{mpsc, oneshot};
+use tokio::{net::TcpListener, sync::RwLock};
+use tracing::{debug, error, info, instrument, warn};
 
+use crate::base_libs::_ec::ECKeyValue;
+use crate::base_libs::network::_messages::receive_omnipaxos_message;
 use crate::{
     base_libs::{
-        _paxos_types::PaxosMessage,
-        network::{_address::Address, _messages::listen},
+        _types::{OmniPaxosECKV, OmniPaxosECMessage},
+        network::_address::Address,
     },
-    classes::{config::_config::Config, ec::_ec::ECService, kvstore::_kvstore::KvStoreModule},
-    config::_constants::{RECONNECT_INTERVAL, STOP_INTERVAL},
+    classes::config::_config::Config,
+    config::_constants::RECONNECT_INTERVAL,
+};
+use omnipaxos::{
+    erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
 };
 
-use super::paxos::_paxos_state::PaxosState;
+#[derive(Debug)]
+pub enum OmniPaxosRequest {
+    Client {
+        entry: ECKeyValue,
+        response: oneshot::Sender<String>,
+    },
+    Network {
+        message: OmniPaxosECMessage,
+    },
+}
 
 pub struct Node {
     // Base attributes
@@ -34,20 +44,12 @@ pub struct Node {
     pub address: Address,
     pub socket: Arc<TcpListener>,
 
-    // Paxos related attributes
-    pub leader_address: Option<Address>,
+    // Cluster info
     pub cluster_list: Arc<RwLock<Vec<String>>>,
     pub cluster_index: usize,
-    pub state: PaxosState,
-    pub epoch: AtomicU64,
-    pub request_id: AtomicU64,
-    pub commit_id: AtomicU64,
-    pub last_heartbeat: Arc<RwLock<Instant>>,
-    pub timeout_duration: Arc<Duration>,
-    pub vote_count: AtomicUsize,
 
-    // Application attributes
-    pub store: KvStoreModule,
+    // Omnipaxos
+    pub omnipaxos_sender: mpsc::Sender<OmniPaxosRequest>,
 }
 
 impl Node {
@@ -55,37 +57,53 @@ impl Node {
         let config = Config::get_config(config_path).await;
         let index = Config::get_node_index(&config, &address);
         let cluster_list: Vec<String> = Config::get_node_addresses(&config)
-            .into_iter()
-            .map(|addr| addr.to_string())
+            .iter()
+            .map(|a| a.to_string())
             .collect();
-
         if let Some(index) = index {
-            info!("[INIT] Storage Config: {:?}", config.storage);
-            info!("[INIT] Node Config: {:?}", config.nodes[index]);
-            info!("[INIT] Index: {}", index);
+            let node_conf = &config.nodes[index];
+            let http_address = Address::new(&node_conf.ip, node_conf.http_port);
+            let cluster_config = ClusterConfigEC {
+                configuration_id: 1,
+                nodes: (0..config.nodes.len()).map(|i| (i + 1) as u64).collect(),
+                flexible_quorum: None,
+            };
+            let server_config = ServerConfigEC {
+                pid: (index + 1) as u64,
+                election_tick_timeout: 5,
+                resend_message_tick_timeout: 5,
+                buffer_size: 10000,
+                batch_size: 1,
+                flush_batch_tick_timeout: 5, // default value, adjust as needed
+                leader_priority: 0,          // default value, adjust as needed
+                erasure_coding_service: ECService::new(
+                    config.storage.shard_count,
+                    config.storage.parity_count,
+                )
+                .unwrap(),
+            };
+            let omnipaxos_config = OmniPaxosECConfig {
+                cluster_config,
+                server_config,
+            };
+            let storage_config =
+                PersistentStorageConfig::with_path(config.nodes[index].rocks_db.path.clone());
+            let omnipaxos: OmniPaxosECKV = omnipaxos_config
+                .build(PersistentStorage::new(storage_config))
+                .unwrap();
 
-            let db_path = &config.nodes[index].rocks_db.path;
-            let tlog_path = &config.nodes[index].transaction_log;
-
-            let ec = Arc::new(ECService::new(
-                config.storage.erasure_coding,
-                config.storage.shard_count,
-                config.storage.parity_count,
-            ));
-            let store = KvStoreModule::new(db_path.as_str(), tlog_path.as_str(), ec).await;
-
-            return Node::new(
+            Node::new(
                 address,
-                Address::new(&config.nodes[index].ip, config.nodes[index].http_port),
+                http_address,
                 config.storage.max_payload_size,
                 cluster_list,
                 index,
-                store,
+                omnipaxos,
             )
-            .await;
+            .await
+        } else {
+            panic!("Error: Failed to get node config");
         }
-
-        panic!("Error: Failed to get node config");
     }
 
     pub async fn new(
@@ -94,46 +112,185 @@ impl Node {
         http_max_payload: usize,
         cluster_list: Vec<String>,
         cluster_index: usize,
-        store: KvStoreModule,
+        omnipaxos: OmniPaxosECKV,
     ) -> Self {
         info!("[INIT] binding address: {}", address);
         let socket = loop {
             match TcpListener::bind(address.to_string()).await {
-                Ok(listener) => break Arc::new(listener),
+                Ok(sock) => {
+                    debug!("[TCP] Successfully bound to address: {}", address);
+                    break Arc::new(sock);
+                }
                 Err(e) => {
-                    error!(
-                        "[INIT] Failed to bind to {}: {}. Retrying in 1s...",
-                        address, e
-                    );
+                    warn!("[INIT] Failed to bind TCP: {}. Retrying...", e);
                     tokio::time::sleep(RECONNECT_INTERVAL).await;
                 }
             }
         };
-
-        let timeout_duration = Arc::new(Duration::from_millis(
-            1000 + (rand::random::<u64>() % 20000),
-        ));
-
-        let node = Node {
+        let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(128);
+        tokio::spawn(async move {
+            let mut omnipaxos = omnipaxos;
+            use crate::base_libs::_ec::ECKeyValue;
+            use omnipaxos::erasure::log_entry::OperationType;
+            use omnipaxos::util::LogEntry;
+            loop {
+                match omnipaxos_receiver.recv().await {
+                    Some(req) => {
+                        debug!("[FLOW] Received OmniPaxosRequest: {:?}", req);
+                        match req {
+                            OmniPaxosRequest::Client { entry, response } => {
+                                debug!("[CLIENT] Proposing entry: {:?}", entry);
+                                let op_type = entry.op.clone();
+                                let key = entry.key.clone();
+                                let res = omnipaxos.append(entry);
+                                if let Err(e) = res {
+                                    error!("[CLIENT] Failed to append entry: {:?}", e);
+                                }
+                                let result = match op_type {
+                                    OperationType::GET => {
+                                        let mut found = None;
+                                        for _ in 0..100 {
+                                            if let Some(entries) = omnipaxos.read_decided_suffix(0)
+                                            {
+                                                for entry in entries {
+                                                    if let LogEntry::Decided(ECKeyValue {
+                                                        key: k,
+                                                        fragment,
+                                                        ..
+                                                    }) = entry
+                                                    {
+                                                        if k == key {
+                                                            found = Some(
+                                                                String::from_utf8_lossy(
+                                                                    &fragment.data,
+                                                                )
+                                                                .to_string(),
+                                                            );
+                                                            debug!("[CLIENT][GET] Found decided value for key {}: {}", k, found.as_ref().unwrap());
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if found.is_some() {
+                                                break;
+                                            }
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+                                        }
+                                        found.unwrap_or_else(|| {
+                                            debug!(
+                                                "[CLIENT][GET] Key {} not found after waiting",
+                                                key
+                                            );
+                                            "Not found".to_string()
+                                        })
+                                    }
+                                    OperationType::SET => {
+                                        let mut committed = false;
+                                        for _ in 0..100 {
+                                            if let Some(entries) = omnipaxos.read_decided_suffix(0)
+                                            {
+                                                for entry in entries {
+                                                    if let LogEntry::Decided(ECKeyValue {
+                                                        key: k,
+                                                        ..
+                                                    }) = entry
+                                                    {
+                                                        if k == key {
+                                                            committed = true;
+                                                            debug!(
+                                                                "[CLIENT][SET] Key {} committed",
+                                                                k
+                                                            );
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if committed {
+                                                break;
+                                            }
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+                                        }
+                                        if committed {
+                                            "OK".to_string()
+                                        } else {
+                                            error!("[CLIENT][SET] Timeout waiting for key {} to commit", key);
+                                            "Timeout".to_string()
+                                        }
+                                    }
+                                    OperationType::DELETE => {
+                                        let mut deleted = false;
+                                        for _ in 0..100 {
+                                            if let Some(entries) = omnipaxos.read_decided_suffix(0)
+                                            {
+                                                if !entries.iter().any(|entry| {
+                                                    if let LogEntry::Decided(ECKeyValue {
+                                                        key: k,
+                                                        ..
+                                                    }) = entry
+                                                    {
+                                                        k == &key
+                                                    } else {
+                                                        false
+                                                    }
+                                                }) {
+                                                    deleted = true;
+                                                    debug!("[CLIENT][DELETE] Key {} deleted", key);
+                                                    break;
+                                                }
+                                            }
+                                            if deleted {
+                                                break;
+                                            }
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+                                        }
+                                        if deleted {
+                                            "Deleted".to_string()
+                                        } else {
+                                            error!("[CLIENT][DELETE] Timeout waiting for key {} to be deleted", key);
+                                            "Timeout".to_string()
+                                        }
+                                    }
+                                    _ => {
+                                        error!("[CLIENT] Unsupported operation");
+                                        "Unsupported operation".to_string()
+                                    }
+                                };
+                                let _ = response.send(result);
+                            }
+                            OmniPaxosRequest::Network { message } => {
+                                debug!("[NETWORK] Handling incoming OmniPaxosECMessage");
+                                omnipaxos.handle_incoming(message);
+                            }
+                        }
+                    }
+                    None => {
+                        error!("[FLOW] OmniPaxosRequest channel closed");
+                        break;
+                    }
+                }
+            }
+        });
+        Node {
+            running: true,
             http_address,
             http_max_payload,
             address,
             socket,
-            running: false,
-            leader_address: None,
             cluster_list: Arc::new(RwLock::new(cluster_list)),
             cluster_index,
-            state: PaxosState::Follower,
-            epoch: std::sync::atomic::AtomicU64::new(0),
-            request_id: std::sync::atomic::AtomicU64::new(0),
-            commit_id: std::sync::atomic::AtomicU64::new(0),
-            last_heartbeat: Arc::new(RwLock::new(Instant::now())),
-            timeout_duration,
-            vote_count: AtomicUsize::new(0),
-            store,
-        };
-
-        node
+            omnipaxos_sender,
+        }
     }
 
     // Information logging
@@ -141,253 +298,33 @@ impl Node {
         info!("-------------------------------------");
         info!("[INFO] Node info:");
         info!("Address: {}", &self.address.to_string());
-        info!("State: {}", &self.state.to_string());
-        info!("Erasure Coding: {}", &self.store.ec.active.to_string());
-        if let Some(leader) = &self.leader_address {
-            info!("Leader: {}", &leader.to_string());
-        } else {
-            info!("Leader: None");
-        }
         info!("Cluster list: {:?}", &self.cluster_list.read().await);
-        info!("Cluster index: {}", &self.cluster_index);
-        info!("Epoch: {:?}", self.epoch.load(Ordering::SeqCst));
-        info!("Request ID: {:?}", self.request_id.load(Ordering::SeqCst));
-        info!("Commit ID: {:?}", self.commit_id.load(Ordering::SeqCst));
-        info!("Last heartbeat: {:?}", &self.last_heartbeat.read().await);
-        info!("Timeout duration: {:?}", &self.timeout_duration);
-
-        info!("\nErasure coding configuration:");
-        info!("Shard count: {}", &self.store.ec.data_shard_count);
-        info!("Parity count: {}", &self.store.ec.parity_shard_count);
-        info!("-------------------------------------");
-    }
-
-    pub fn run_timer_task(node_arc: Arc<RwLock<Node>>) {
-        info!("[INIT] Starting timer task...");
-        let node_clone = Arc::clone(&node_arc);
-
-        tokio::spawn(async move {
-            let (last_heartbeat, timeout_duration) = {
-                let node = node_arc.read().await;
-                (
-                    Arc::clone(&node.last_heartbeat),
-                    Arc::clone(&node.timeout_duration),
-                )
-            };
-            let timeout = *timeout_duration;
-            let heartbeat_delay = timeout / 3;
-
-            info!("[TIMEOUT] Spawning task to check for timeout");
-
-            loop {
-                let state = {
-                    let node = node_clone.read().await;
-                    node.state
-                };
-
-                match state {
-                    PaxosState::Leader => {
-                        tokio::time::sleep(heartbeat_delay).await;
-                        info!("[TIMEOUT] Timeout reached, sending heartbeat...");
-
-                        {
-                            let mut node = node_clone.write().await;
-                            node.vote_count
-                                .store(0, std::sync::atomic::Ordering::Relaxed);
-                            let _ = node.send_heartbeat().await;
-                        }
-                    }
-                    _ => {
-                        tokio::time::sleep(timeout).await;
-
-                        let last = *last_heartbeat.read().await;
-
-                        if last.elapsed() > timeout {
-                            warn!("[TIMEOUT] Timeout reached, starting leader election. Time since last heartbeat: {:?}, timeout is {:?}", last.elapsed(), timeout);
-
-                            {
-                                let mut node = node_clone.write().await;
-                                node.state = PaxosState::Candidate;
-                                let _ = node.start_leader_election().await;
-                            }
-
-                            let mut last_heartbeat_mut = last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
-                        }
-
-                        let running = {
-                            let node = node_clone.read().await;
-                            node.running
-                        };
-
-                        if !running {
-                            break;
-                        }
-                    }
-                }
-            }
-        });
     }
 
     #[instrument(level = "debug", skip_all)]
     pub fn run_tcp_loop(node_arc: Arc<RwLock<Node>>) {
-        info!("[INIT] Starting TCP loop...");
-
         tokio::spawn(async move {
+            let socket = {
+                let node = node_arc.read().await;
+                node.socket.clone()
+            };
+            debug!(
+                "[TCP] Listening for incoming TCP connections on {}",
+                socket.local_addr().unwrap()
+            );
             loop {
-                let socket = {
-                    let node = node_arc.read().await;
-                    if !node.running {
-                        info!("[TIMEOUT] Running is false, stopping",);
-                        break;
+                match receive_omnipaxos_message(&socket).await {
+                    Ok((_stream, message)) => {
+                        debug!("[TCP] Received OmniPaxosECMessage from peer");
+                        let node = node_arc.read().await;
+                        let _ = node
+                            .omnipaxos_sender
+                            .send(OmniPaxosRequest::Network { message })
+                            .await;
                     }
-                    node.socket.clone()
-                };
-
-                let (stream, message) = match listen(&socket).await {
-                    Ok(msg) => msg,
-                    Err(_) => {
-                        error!("[ERROR] Received bad message on socket, continuing...");
+                    Err(e) => {
+                        warn!("[TCP] Error receiving message: {}", e);
                         continue;
-                    }
-                };
-
-                match message {
-                    // Leader election
-                    PaxosMessage::Heartbeat {
-                        epoch,
-                        commit_id,
-                        source,
-                    } => {
-                        info!("[REQUEST] Received Heartbeat from {}", source);
-                        {
-                            let node = node_arc.read().await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
-                        }
-                        {
-                            let mut node = node_arc.write().await;
-                            node.handle_heartbeat(&source, stream, epoch, commit_id)
-                                .await;
-                        }
-                    }
-                    PaxosMessage::LeaderVote { epoch, source } => {
-                        info!("[REQUEST] Received LeaderVote from {}", source);
-                        {
-                            let node = node_arc.read().await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
-                        }
-                        {
-                            let mut node = node_arc.write().await;
-                            node.handle_leader_vote(&source, stream, epoch).await;
-                        }
-                    }
-                    PaxosMessage::LeaderDeclaration {
-                        epoch,
-                        commit_id,
-                        source,
-                    } => {
-                        info!("[REQUEST] Received LeaderDeclaration from {}", source);
-                        {
-                            let node = node_arc.read().await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
-                        }
-                        {
-                            let mut node = node_arc.write().await;
-                            node.handle_leader_declaration(&source, stream, epoch, commit_id)
-                                .await;
-                        }
-                    }
-
-                    PaxosMessage::ElectionRequest {
-                        epoch,
-                        request_id,
-                        source,
-                    } => {
-                        info!(
-                            "[REQUEST] Received ElectionRequest from {}, epoch is {} request id is {}",
-                            source, epoch, request_id
-                        );
-                        {
-                            let node = node_arc.read().await;
-                            let mut last_heartbeat_mut = node.last_heartbeat.write().await;
-                            *last_heartbeat_mut = Instant::now();
-                        }
-                        {
-                            let mut node = node_arc.write().await;
-                            node.handle_leader_request(&source, stream, epoch, request_id)
-                                .await;
-                        }
-                    }
-
-                    // Transactional
-                    PaxosMessage::AcceptRequest {
-                        epoch,
-                        request_id,
-                        operation,
-                        source,
-                    } => {
-                        info!("[REQUEST] Received AcceptRequest from {}", source);
-                        {
-                            let mut node = node_arc.write().await;
-                            _ = node
-                                .handle_leader_accept(
-                                    &source, stream, epoch, request_id, &operation,
-                                )
-                                .await;
-                        }
-                    }
-
-                    PaxosMessage::LearnRequest {
-                        epoch,
-                        commit_id,
-                        source,
-                    } => {
-                        info!("[REQUEST] Received LearnRequest from {}", source);
-                        {
-                            let mut node = node_arc.write().await;
-                            _ = node
-                                .handle_leader_learn(&source, stream, epoch, commit_id)
-                                .await;
-                        }
-                    }
-
-                    PaxosMessage::Ack {
-                        epoch: _,
-                        request_id,
-                        source,
-                    } => {
-                        info!("[REQUEST] Received FollowerAck from {}", source);
-                        {
-                            let node = node_arc.write().await;
-                            node.handle_follower_ack(&source, stream, request_id).await;
-                        }
-                    }
-
-                    // Client request
-                    PaxosMessage::ClientRequest { operation, source } => {
-                        info!("[REQUEST] Received ClientRequest from {}", source);
-                        {
-                            let mut node = node_arc.write().await;
-                            node.handle_client_request(&source, stream, operation).await;
-                        }
-                    }
-
-                    PaxosMessage::RecoveryRequest { key, source } => {
-                        info!("[REQUEST] Received RecoveryRequest from {}", source);
-                        {
-                            let node = node_arc.read().await;
-                            node.handle_recovery_request(&source, stream, &key).await;
-                        }
-                    }
-
-                    _ => {
-                        error!(
-                            "[REQUEST] Received invalid message from {:?}",
-                            stream.peer_addr()
-                        );
                     }
                 }
             }
@@ -420,10 +357,10 @@ impl Node {
                             .app_data(web::Data::new(node_arc_clone.clone()))
                             .app_data(web::PayloadConfig::new(max_payload))
                             .app_data(web::JsonConfig::default().limit(max_payload))
-                            .route("/", web::get().to(Node::http_healthcheck))
-                            .route("/kv/range", web::post().to(Node::http_get))
-                            .route("/kv/put", web::post().to(Node::http_put))
-                            .route("/kv/deleterange", web::post().to(Node::http_delete))
+                            .route("/health", web::get().to(Node::http_healthcheck))
+                            .route("/get", web::post().to(Node::http_get))
+                            .route("/put", web::post().to(Node::http_put))
+                            .route("/delete", web::post().to(Node::http_delete))
                     })
                     .bind((address.ip.as_str(), address.port))
                     {
@@ -446,21 +383,9 @@ impl Node {
         });
     }
 
-    pub async fn initialize(node_arc: &Arc<RwLock<Node>>) {
-        let mut node = node_arc.write().await;
-        node.running = true;
-        node.store.initialize().await;
-        node.print_info().await;
-    }
-
     pub async fn run(node_arc: Arc<RwLock<Node>>) {
-        info!("[INIT] Running node...");
-
-        Node::initialize(&node_arc).await;
-
-        Node::run_timer_task(node_arc.clone());
-        Node::run_tcp_loop(node_arc.clone());
-        Node::run_http_loop(node_arc.clone());
+        Self::run_tcp_loop(node_arc.clone());
+        Self::run_http_loop(node_arc.clone());
 
         info!("[INIT] Node is now running");
 
@@ -475,7 +400,7 @@ impl Node {
             node.running = false;
             info!("[INIT] Node is stopping...");
 
-            tokio::time::sleep(STOP_INTERVAL).await;
+            tokio::time::sleep(RECONNECT_INTERVAL).await;
         }
     }
 }
