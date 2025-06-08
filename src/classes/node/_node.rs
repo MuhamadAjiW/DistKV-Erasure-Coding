@@ -2,10 +2,11 @@ use core::panic;
 use std::sync::Arc;
 
 use actix_web::{web, App, HttpServer};
+use bincode::de;
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use tokio::sync::{mpsc, oneshot};
 use tokio::{net::TcpListener, sync::RwLock};
-use tracing::{info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::base_libs::_ec::ECKeyValue;
 use crate::base_libs::network::_messages::receive_omnipaxos_message;
@@ -21,6 +22,7 @@ use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
 };
 
+#[derive(Debug)]
 pub enum OmniPaxosRequest {
     Client {
         entry: ECKeyValue,
@@ -116,7 +118,10 @@ impl Node {
         info!("[INIT] binding address: {}", address);
         let socket = loop {
             match TcpListener::bind(address.to_string()).await {
-                Ok(sock) => break Arc::new(sock),
+                Ok(sock) => {
+                    debug!("[TCP] Successfully bound to address: {}", address);
+                    break Arc::new(sock);
+                }
                 Err(e) => {
                     warn!("[INIT] Failed to bind TCP: {}. Retrying...", e);
                     tokio::time::sleep(RECONNECT_INTERVAL).await;
@@ -129,103 +134,150 @@ impl Node {
             use crate::base_libs::_ec::ECKeyValue;
             use omnipaxos::erasure::log_entry::OperationType;
             use omnipaxos::util::LogEntry;
-            while let Some(req) = omnipaxos_receiver.recv().await {
-                match req {
-                    OmniPaxosRequest::Client { entry, response } => {
-                        let op_type = entry.op.clone();
-                        let key = entry.key.clone();
-                        let _ = omnipaxos.append(entry);
-                        let result = match op_type {
-                            OperationType::GET => {
-                                let mut found = None;
-                                for _ in 0..100 {
-                                    if let Some(entries) = omnipaxos.read_decided_suffix(0) {
-                                        for entry in entries {
-                                            if let LogEntry::Decided(ECKeyValue {
-                                                key: k,
-                                                fragment,
-                                                ..
-                                            }) = entry
+            loop {
+                match omnipaxos_receiver.recv().await {
+                    Some(req) => {
+                        debug!("[FLOW] Received OmniPaxosRequest: {:?}", req);
+                        match req {
+                            OmniPaxosRequest::Client { entry, response } => {
+                                debug!("[CLIENT] Proposing entry: {:?}", entry);
+                                let op_type = entry.op.clone();
+                                let key = entry.key.clone();
+                                let res = omnipaxos.append(entry);
+                                if let Err(e) = res {
+                                    error!("[CLIENT] Failed to append entry: {:?}", e);
+                                }
+                                let result = match op_type {
+                                    OperationType::GET => {
+                                        let mut found = None;
+                                        for _ in 0..100 {
+                                            if let Some(entries) = omnipaxos.read_decided_suffix(0)
                                             {
-                                                if k == key {
-                                                    found = Some(
-                                                        String::from_utf8_lossy(&fragment.data)
-                                                            .to_string(),
-                                                    );
+                                                for entry in entries {
+                                                    if let LogEntry::Decided(ECKeyValue {
+                                                        key: k,
+                                                        fragment,
+                                                        ..
+                                                    }) = entry
+                                                    {
+                                                        if k == key {
+                                                            found = Some(
+                                                                String::from_utf8_lossy(
+                                                                    &fragment.data,
+                                                                )
+                                                                .to_string(),
+                                                            );
+                                                            debug!("[CLIENT][GET] Found decided value for key {}: {}", k, found.as_ref().unwrap());
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if found.is_some() {
+                                                break;
+                                            }
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+                                        }
+                                        found.unwrap_or_else(|| {
+                                            debug!(
+                                                "[CLIENT][GET] Key {} not found after waiting",
+                                                key
+                                            );
+                                            "Not found".to_string()
+                                        })
+                                    }
+                                    OperationType::SET => {
+                                        let mut committed = false;
+                                        for _ in 0..100 {
+                                            if let Some(entries) = omnipaxos.read_decided_suffix(0)
+                                            {
+                                                for entry in entries {
+                                                    if let LogEntry::Decided(ECKeyValue {
+                                                        key: k,
+                                                        ..
+                                                    }) = entry
+                                                    {
+                                                        if k == key {
+                                                            committed = true;
+                                                            debug!(
+                                                                "[CLIENT][SET] Key {} committed",
+                                                                k
+                                                            );
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if committed {
+                                                break;
+                                            }
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+                                        }
+                                        if committed {
+                                            "OK".to_string()
+                                        } else {
+                                            error!("[CLIENT][SET] Timeout waiting for key {} to commit", key);
+                                            "Timeout".to_string()
+                                        }
+                                    }
+                                    OperationType::DELETE => {
+                                        let mut deleted = false;
+                                        for _ in 0..100 {
+                                            if let Some(entries) = omnipaxos.read_decided_suffix(0)
+                                            {
+                                                if !entries.iter().any(|entry| {
+                                                    if let LogEntry::Decided(ECKeyValue {
+                                                        key: k,
+                                                        ..
+                                                    }) = entry
+                                                    {
+                                                        k == &key
+                                                    } else {
+                                                        false
+                                                    }
+                                                }) {
+                                                    deleted = true;
+                                                    debug!("[CLIENT][DELETE] Key {} deleted", key);
                                                     break;
                                                 }
                                             }
-                                        }
-                                    }
-                                    if found.is_some() {
-                                        break;
-                                    }
-                                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                                }
-                                found.unwrap_or_else(|| "Not found".to_string())
-                            }
-                            OperationType::SET => {
-                                let mut committed = false;
-                                for _ in 0..100 {
-                                    if let Some(entries) = omnipaxos.read_decided_suffix(0) {
-                                        for entry in entries {
-                                            if let LogEntry::Decided(ECKeyValue {
-                                                key: k, ..
-                                            }) = entry
-                                            {
-                                                if k == key {
-                                                    committed = true;
-                                                    break;
-                                                }
+                                            if deleted {
+                                                break;
                                             }
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                10,
+                                            ))
+                                            .await;
+                                        }
+                                        if deleted {
+                                            "Deleted".to_string()
+                                        } else {
+                                            error!("[CLIENT][DELETE] Timeout waiting for key {} to be deleted", key);
+                                            "Timeout".to_string()
                                         }
                                     }
-                                    if committed {
-                                        break;
+                                    _ => {
+                                        error!("[CLIENT] Unsupported operation");
+                                        "Unsupported operation".to_string()
                                     }
-                                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                                }
-                                if committed {
-                                    "OK".to_string()
-                                } else {
-                                    "Timeout".to_string()
-                                }
+                                };
+                                let _ = response.send(result);
                             }
-                            OperationType::DELETE => {
-                                let mut deleted = false;
-                                for _ in 0..100 {
-                                    if let Some(entries) = omnipaxos.read_decided_suffix(0) {
-                                        if !entries.iter().any(|entry| {
-                                            if let LogEntry::Decided(ECKeyValue {
-                                                key: k, ..
-                                            }) = entry
-                                            {
-                                                k == &key
-                                            } else {
-                                                false
-                                            }
-                                        }) {
-                                            deleted = true;
-                                            break;
-                                        }
-                                    }
-                                    if deleted {
-                                        break;
-                                    }
-                                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                                }
-                                if deleted {
-                                    "Deleted".to_string()
-                                } else {
-                                    "Timeout".to_string()
-                                }
+                            OmniPaxosRequest::Network { message } => {
+                                debug!("[NETWORK] Handling incoming OmniPaxosECMessage");
+                                omnipaxos.handle_incoming(message);
                             }
-                            _ => "Unsupported operation".to_string(),
-                        };
-                        let _ = response.send(result);
+                        }
                     }
-                    OmniPaxosRequest::Network { message } => {
-                        omnipaxos.handle_incoming(message);
+                    None => {
+                        error!("[FLOW] OmniPaxosRequest channel closed");
+                        break;
                     }
                 }
             }
@@ -257,9 +309,14 @@ impl Node {
                 let node = node_arc.read().await;
                 node.socket.clone()
             };
+            debug!(
+                "[TCP] Listening for incoming TCP connections on {}",
+                socket.local_addr().unwrap()
+            );
             loop {
                 match receive_omnipaxos_message(&socket).await {
                     Ok((_stream, message)) => {
+                        debug!("[TCP] Received OmniPaxosECMessage from peer");
                         let node = node_arc.read().await;
                         let _ = node
                             .omnipaxos_sender
@@ -281,6 +338,7 @@ impl Node {
             let node = node_arc.blocking_read();
             node.http_address.to_string()
         };
+        debug!("[HTTP] Starting HTTP server on {}", http_addr);
         let data = web::Data::new(node_arc.clone());
         tokio::spawn(async move {
             HttpServer::new(move || {
