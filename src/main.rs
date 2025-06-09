@@ -1,6 +1,9 @@
 use std::{io, sync::Arc};
 
-use distkv::{config::_address::Address, ec::classes::node::_node::Node};
+use distkv::{
+    config::_address::Address, ec::classes::node::_node::Node as ECNode,
+    standard::classes::node::_node::Node,
+};
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -21,6 +24,10 @@ struct Cli {
     /// Optional: Enable tracing for debugging
     #[arg(long, short, default_value_t = false)]
     trace: bool,
+
+    /// Optional: Enable erasure coding
+    #[arg(long, short, default_value_t = false)]
+    erasure: bool,
 }
 
 #[tokio::main]
@@ -50,11 +57,17 @@ async fn main() -> Result<(), io::Error> {
     let address = Address::from_string(&cli.addr).unwrap();
     info!("[INIT] Starting node with address: {}", &address);
 
-    let node = Node::from_config(address, &cli.conf).await;
-    info!("[INIT] Node started with address: {}", &node.address);
-
-    let node_arc = Arc::new(RwLock::new(node));
-    Node::run(node_arc).await;
+    if cli.erasure {
+        let node = Node::from_config(address, &cli.conf).await;
+        info!("[INIT] Node started with address: {}", &node.address);
+        let node_arc = Arc::new(RwLock::new(node));
+        Node::run(node_arc).await;
+    } else {
+        let node = ECNode::from_config(address, &cli.conf).await;
+        info!("[INIT] Node started with address: {}", &node.address);
+        let node_arc = Arc::new(RwLock::new(node));
+        ECNode::run(node_arc).await;
+    }
 
     Ok(())
 }
