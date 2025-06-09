@@ -229,7 +229,7 @@ run_all() {
 
 
 virtual_users=(
-    1 5 10 25 50 100
+    1 5 10 25 50 100 250 500
 )
 
 size=(
@@ -279,6 +279,8 @@ bench_baseline() {
 
 run_bench_suite() {
     timestamp=$(date +%Y%m%d_%H%M%S)
+    stop_all
+    
     echo "Starting benchmark suite..."
 
     # Benchmark replication
