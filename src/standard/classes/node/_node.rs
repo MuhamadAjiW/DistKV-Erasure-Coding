@@ -10,17 +10,17 @@ use tokio::time::{interval, sleep};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::base_libs::_ec::ECKeyValue;
-use crate::base_libs::network::_messages::receive_omnipaxos_message;
-use crate::config::_constants::{BUFFER_SIZE, ELECTION_TICK_TIMEOUT, TICK_PERIOD};
-use crate::{
-    base_libs::{
-        _types::{OmniPaxosECKV, OmniPaxosECMessage},
-        network::_address::Address,
-    },
-    classes::config::_config::Config,
-    config::_constants::RECONNECT_INTERVAL,
+use crate::config::_address::Address;
+use crate::config::_config::Config;
+use crate::config::_constants::{
+    BUFFER_SIZE, ELECTION_TICK_TIMEOUT, RECONNECT_INTERVAL, TICK_PERIOD,
 };
+use crate::standard::base_libs::network::_messages::send_omnipaxos_message;
+use crate::standard::base_libs::{
+    _types::{OmniPaxosECKV, OmniPaxosECMessage},
+    network::_messages::receive_omnipaxos_message,
+};
+use crate::standard::classes::_entry::ECKeyValue;
 use omnipaxos::util::{LogEntry, NodeId};
 use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
@@ -265,7 +265,7 @@ impl Node {
                         for (receiver, batch) in peer_batches {
                             if let Some(addr) = peer_addresses.get(&receiver) {
                                 debug!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
-                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(batch, addr, None).await;
+                                let _ = send_omnipaxos_message(batch, addr, None).await;
                             }
                         }
                     }
@@ -290,7 +290,7 @@ impl Node {
                         for (receiver, batch) in peer_batches {
                             if let Some(addr) = peer_addresses.get(&receiver) {
                                 debug!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
-                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(batch, addr, None).await;
+                                let _ = send_omnipaxos_message(batch, addr, None).await;
                             }
                         }
                     }

@@ -1,5 +1,5 @@
-use crate::base_libs::_ec::ECKeyValue;
-use crate::classes::node::_node::OmniPaxosRequest;
+use crate::standard::classes::_entry::ECKeyValue;
+use crate::standard::classes::node::_node::OmniPaxosRequest;
 use actix_web::{web, HttpResponse, Responder};
 use omnipaxos::erasure::log_entry::OperationType;
 use omnipaxos::{erasure::ec_service::EntryFragment, util::LogEntry};

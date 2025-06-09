@@ -1,6 +1,6 @@
 use std::{io, sync::Arc};
 
-use distkv::{base_libs::network::_address::Address, classes::node::_node::Node};
+use distkv::{config::_address::Address, ec::classes::node::_node::Node};
 use tokio::sync::RwLock;
 use tracing::{info, instrument};
 use tracing_subscriber::fmt::format::FmtSpan;

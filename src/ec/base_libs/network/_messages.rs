@@ -1,4 +1,4 @@
-use crate::base_libs::_types::OmniPaxosECMessage;
+use crate::ec::base_libs::_types::OmniPaxosECMessage;
 use bincode;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

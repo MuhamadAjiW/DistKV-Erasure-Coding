@@ -1,3 +1,3 @@
-pub mod base_libs;
-pub mod classes;
 pub mod config;
+pub mod ec;
+pub mod standard;

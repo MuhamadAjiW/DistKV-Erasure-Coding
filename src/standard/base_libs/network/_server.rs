@@ -5,10 +5,10 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::time;
 use tracing::{debug, error};
 
-use crate::base_libs::_types::OmniPaxosECKV;
-use crate::base_libs::_types::OmniPaxosECMessage;
-use crate::base_libs::network::_messages::send_omnipaxos_message;
 use crate::config::_constants::{OUTGOING_MESSAGE_PERIOD, TICK_PERIOD};
+use crate::standard::base_libs::_types::OmniPaxosECKV;
+use crate::standard::base_libs::_types::OmniPaxosECMessage;
+use crate::standard::base_libs::network::_messages::send_omnipaxos_message;
 
 pub struct OmniPaxosServerEC {
     pub omni_paxos: Arc<Mutex<OmniPaxosECKV>>,

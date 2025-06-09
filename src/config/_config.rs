@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
-use crate::base_libs::network::_address::Address;
 use tracing::error;
+
+use crate::config::_address::Address;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Config {
