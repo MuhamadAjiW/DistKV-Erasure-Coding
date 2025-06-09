@@ -93,6 +93,7 @@ run_node() {
     local config_file="./etc/config.json"
     local file_output=""
     local trace=""
+    local erasure=""
 
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
@@ -112,6 +113,10 @@ run_node() {
                 trace="--trace"
                 shift 1
                 ;;
+            --erasure)
+                erasure="--erasure"
+                shift 1
+                ;;
             *)
                 echo "Unknown option: $1"
                 return 1
@@ -121,7 +126,7 @@ run_node() {
 
     if [ -z "$addr" ] || [ -z "$config_file" ]; then
         echo "Error: Missing required arguments for run_node."
-        echo "Usage: run_node --addr <address> --config_file <path> [--file_output <true/false>] [--trace]"
+        echo "Usage: run_node --addr <address> --config_file <path> [--file_output <true/false>] [--trace] [--erasure]"
         return 1
     fi
 
@@ -131,17 +136,17 @@ run_node() {
         echo "Starting node on ${addr} with config ${config_file} and tracing disabled..."
     fi
     
-    local cmd="cargo run --release -- --addr ${addr} --conf ${config_file} ${file_output} ${trace}"
+    local cmd="cargo run --release -- --addr ${addr} --conf ${config_file} ${file_output} ${trace} ${erasure}"
 
     if [ -n "$file_output" ]; then
         local log_dir="./logs"
         mkdir -p "$log_dir"
         local log_file="${log_dir}/node_${addr//:/_}.log"
         echo "Logging to file: ${log_file}"
-        cargo run --release -- --addr ${addr} --conf ${config_file} ${trace} > "${log_file}"
+        cargo run --release -- --addr ${addr} --conf ${config_file} ${trace} ${erasure} > "${log_file}"
     else
         echo "Logging to terminal"
-        cargo run --release -- --addr ${addr} --conf ${config_file} ${trace}
+        cargo run --release -- --addr ${addr} --conf ${config_file} ${trace} ${erasure}
     fi
 }
 
@@ -156,6 +161,7 @@ run_all() {
     local file_output=""
     local trace=""
     local continue=""
+    local erasure=""
 
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
@@ -175,17 +181,19 @@ run_all() {
                 continue="--continue"
                 shift 1
                 ;;
+            --erasure)
+                erasure="--erasure"
+                shift 1
+                ;;
             *)
                 echo "Unknown option: $1"
-                echo "Usage: run_node --addr <address> --config_file <path> [--file_output] [--trace]"
+                echo "Usage: run_node --addr <address> --config_file <path> [--file_output] [--trace] [--erasure]"
                 return 1
                 ;;
         esac
     done
 
     validate_config "$config_path"
-
-    
 
     echo "Starting all services based on config: ${config_path}"
     if [ -n "$continue" ]; then
@@ -211,7 +219,7 @@ run_all() {
         local port=$(jq -r ".nodes[$i].port" "$config_path")
         addr="${ip}:${port}"
 
-        start_terminal "./scripts.sh run_node --addr ${addr} --config_file ${config_path} ${file_output} ${trace}" "node-${addr//:/_}"
+        start_terminal "./scripts.sh run_node --addr ${addr} --config_file ${config_path} ${file_output} ${trace} ${erasure}" "node-${addr//:/_}"
         sleep 1
     done
 
