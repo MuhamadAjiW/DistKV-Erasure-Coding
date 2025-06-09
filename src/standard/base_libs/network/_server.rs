@@ -6,26 +6,26 @@ use tokio::time;
 use tracing::{debug, error};
 
 use crate::config::_constants::{OUTGOING_MESSAGE_PERIOD, TICK_PERIOD};
-use crate::standard::base_libs::_types::OmniPaxosECKV;
-use crate::standard::base_libs::_types::OmniPaxosECMessage;
+use crate::standard::base_libs::_types::OmniPaxosKV;
+use crate::standard::base_libs::_types::OmniPaxosMessage;
 use crate::standard::base_libs::network::_messages::send_omnipaxos_message;
 
-pub struct OmniPaxosServerEC {
-    pub omni_paxos: Arc<Mutex<OmniPaxosECKV>>,
-    pub incoming: mpsc::Receiver<OmniPaxosECMessage>,
-    pub outgoing: HashMap<NodeId, mpsc::Sender<OmniPaxosECMessage>>, // for local delivery only
+pub struct OmniPaxosServer {
+    pub omni_paxos: Arc<Mutex<OmniPaxosKV>>,
+    pub incoming: mpsc::Receiver<OmniPaxosMessage>,
+    pub outgoing: HashMap<NodeId, mpsc::Sender<OmniPaxosMessage>>, // for local delivery only
     pub peer_addresses: HashMap<NodeId, String>, // new: map NodeId to network address ("ip:port")
-    pub message_buffer: Vec<OmniPaxosECMessage>,
+    pub message_buffer: Vec<OmniPaxosMessage>,
 }
 
-impl OmniPaxosServerEC {
+impl OmniPaxosServer {
     async fn send_outgoing_msgs(&mut self) {
         let mut buffer = Vec::new();
         {
             let mut omni = self.omni_paxos.lock().await;
             omni.take_outgoing_messages(&mut buffer);
         }
-        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
+        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosMessage>> = HashMap::new();
         for msg in buffer.drain(..) {
             let receiver = msg.get_receiver();
             if let Some(local_channel) = self.outgoing.get_mut(&receiver) {

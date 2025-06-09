@@ -17,24 +17,22 @@ use crate::config::_constants::{
 };
 use crate::standard::base_libs::network::_messages::send_omnipaxos_message;
 use crate::standard::base_libs::{
-    _types::{OmniPaxosECKV, OmniPaxosECMessage},
+    _types::{OmniPaxosKV, OmniPaxosMessage},
     network::_messages::receive_omnipaxos_message,
 };
-use crate::standard::classes::_entry::ECKeyValue;
+use crate::standard::classes::_entry::KeyValue;
 use omnipaxos::util::{LogEntry, NodeId};
-use omnipaxos::{
-    erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
-};
+use omnipaxos::{ClusterConfig, OmniPaxosConfig, ServerConfig};
 use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum OmniPaxosRequest {
     Client {
-        entry: ECKeyValue,
+        entry: KeyValue,
         response: oneshot::Sender<String>,
     },
     Network {
-        message: OmniPaxosECMessage,
+        message: OmniPaxosMessage,
     },
 }
 
@@ -57,7 +55,7 @@ pub struct Node {
 
     // Omnipaxos
     pub omnipaxos_sender: mpsc::Sender<OmniPaxosRequest>,
-    pub omnipaxos: Arc<Mutex<OmniPaxosECKV>>,
+    pub omnipaxos: Arc<Mutex<OmniPaxosKV>>,
 }
 
 impl Node {
@@ -81,28 +79,23 @@ impl Node {
                 .enumerate()
                 .map(|(i, _)| (i + 1) as u64)
                 .collect();
-            let cluster_config = ClusterConfigEC {
+            let cluster_config = ClusterConfig {
                 configuration_id: 1,
                 nodes,
                 flexible_quorum: None,
             };
-            let server_config = ServerConfigEC {
+            let server_config = ServerConfig {
                 pid: (index + 1) as u64,
                 election_tick_timeout: ELECTION_TICK_TIMEOUT,
-                erasure_coding_service: ECService::new(
-                    config.storage.shard_count,
-                    config.storage.parity_count,
-                )
-                .unwrap(),
                 ..Default::default()
             };
-            let omnipaxos_config = OmniPaxosECConfig {
+            let omnipaxos_config = OmniPaxosConfig {
                 cluster_config,
                 server_config,
             };
             let storage_config =
                 PersistentStorageConfig::with_path(config.nodes[index].rocks_db.path.clone());
-            let omnipaxos: OmniPaxosECKV = omnipaxos_config
+            let omnipaxos: OmniPaxosKV = omnipaxos_config
                 .build(PersistentStorage::new(storage_config))
                 .unwrap();
 
@@ -126,7 +119,7 @@ impl Node {
         http_max_payload: usize,
         cluster_list: Vec<String>,
         cluster_index: usize,
-        omnipaxos: OmniPaxosECKV,
+        omnipaxos: OmniPaxosKV,
     ) -> Self {
         info!("[INIT] binding address: {}", address);
         let socket = loop {
@@ -212,8 +205,8 @@ impl Node {
                                                             if entry_data.key == entry.key && entry_data.op == OperationType::SET {
                                                                 // Found the most recent SET for this key
                                                                 key_found = true;
-                                                                let fragment = &entry_data.fragment;
-                                                                if let Ok(value) = String::from_utf8(fragment.data.clone()) {
+                                                                let value = &entry_data.value;
+                                                                if let Ok(value) = String::from_utf8(value.clone()) {
                                                                     result = value;
                                                                     break;
                                                                 }
@@ -257,7 +250,7 @@ impl Node {
                             }
                         }
                         // Batch outgoing messages per peer
-                        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
+                        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosMessage>> = HashMap::new();
                         for msg in send_msgs.drain(..) {
                             let receiver = msg.get_receiver();
                             peer_batches.entry(receiver).or_default().push(msg);
@@ -282,7 +275,7 @@ impl Node {
                         }
 
                         // Batch outgoing messages per peer
-                        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
+                        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosMessage>> = HashMap::new();
                         for msg in send_msgs.drain(..) {
                             let receiver = msg.get_receiver();
                             peer_batches.entry(receiver).or_default().push(msg);

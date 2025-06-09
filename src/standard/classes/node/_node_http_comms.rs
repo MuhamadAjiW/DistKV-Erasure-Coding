@@ -1,8 +1,8 @@
-use crate::standard::classes::_entry::ECKeyValue;
+use crate::standard::classes::_entry::KeyValue;
 use crate::standard::classes::node::_node::OmniPaxosRequest;
 use actix_web::{web, HttpResponse, Responder};
 use omnipaxos::erasure::log_entry::OperationType;
-use omnipaxos::{erasure::ec_service::EntryFragment, util::LogEntry};
+use omnipaxos::util::LogEntry;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -86,7 +86,7 @@ struct EndpointDoc {
 
 impl Node {
     // Utility function to send a request to OmniPaxos and get the response
-    pub async fn send_omnipaxos_request(&self, entry: ECKeyValue) -> String {
+    pub async fn send_omnipaxos_request(&self, entry: KeyValue) -> String {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         match self
@@ -138,14 +138,14 @@ impl Node {
             });
         }
 
-        let ec_entry = ECKeyValue {
+        let entry = KeyValue {
             key: body.key.clone(),
-            fragment: EntryFragment::default(),
+            value: vec![],
             op: OperationType::GET,
         };
 
         let node = node_data.read().await;
-        let result = node.send_omnipaxos_request(ec_entry).await;
+        let result = node.send_omnipaxos_request(entry).await;
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -179,14 +179,14 @@ impl Node {
             });
         }
 
-        let ec_entry = ECKeyValue {
+        let entry = KeyValue {
             key: body.key.clone(),
-            fragment: EntryFragment::for_request(body.value.clone().into_bytes()),
+            value: body.value.clone().into_bytes(),
             op: OperationType::SET,
         };
 
         let node = node_data.read().await;
-        let result = node.send_omnipaxos_request(ec_entry).await;
+        let result = node.send_omnipaxos_request(entry).await;
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -211,14 +211,14 @@ impl Node {
             });
         }
 
-        let ec_entry = ECKeyValue {
+        let entry = KeyValue {
             key: body.key.clone(),
-            fragment: EntryFragment::default(),
+            value: vec![],
             op: OperationType::DELETE,
         };
 
         let node = node_data.read().await;
-        let result = node.send_omnipaxos_request(ec_entry).await;
+        let result = node.send_omnipaxos_request(entry).await;
 
         let response = BaseResponse {
             key: body.key.clone(),
@@ -301,18 +301,16 @@ impl Node {
                 continue;
             }
 
-            let ec_entry = ECKeyValue {
+            let entry = KeyValue {
                 key: op.key.clone(),
-                fragment: match op_type {
-                    OperationType::SET => {
-                        EntryFragment::for_request(op.value.clone().unwrap().into_bytes())
-                    }
-                    _ => EntryFragment::default(),
+                value: match op_type {
+                    OperationType::SET => op.value.clone().unwrap().into_bytes(),
+                    _ => vec![],
                 },
                 op: op_type,
             };
 
-            let result = node.send_omnipaxos_request(ec_entry).await;
+            let result = node.send_omnipaxos_request(entry).await;
             results.push(BaseResponse {
                 key: op.key.clone(),
                 response: result,

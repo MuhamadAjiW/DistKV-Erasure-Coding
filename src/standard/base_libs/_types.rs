@@ -1,7 +1,7 @@
-use omnipaxos::{messages::Message, ClusterConfigEC, OmniPaxosEC};
+use omnipaxos::{messages::Message, ClusterConfig, OmniPaxos};
 use omnipaxos_storage::persistent_storage::PersistentStorage;
 
-use crate::standard::classes::_entry::ECKeyValue;
+use crate::standard::classes::_entry::KeyValue;
 
-pub type OmniPaxosECKV = OmniPaxosEC<ECKeyValue, PersistentStorage<ECKeyValue, ClusterConfigEC>>;
-pub type OmniPaxosECMessage = Message<ECKeyValue, ClusterConfigEC>;
+pub type OmniPaxosKV = OmniPaxos<KeyValue, PersistentStorage<KeyValue, ClusterConfig>>;
+pub type OmniPaxosMessage = Message<KeyValue, ClusterConfig>;

@@ -1,4 +1,4 @@
-use crate::standard::base_libs::_types::OmniPaxosECMessage;
+use crate::standard::base_libs::_types::OmniPaxosMessage;
 use bincode;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -7,9 +7,9 @@ use tracing::error;
 
 // Send a batch of messages
 pub async fn send_omnipaxos_message(
-    messages: Vec<OmniPaxosECMessage>,
+    messages: Vec<OmniPaxosMessage>,
     addr: &str,
-    local_sender: Option<mpsc::Sender<OmniPaxosECMessage>>,
+    local_sender: Option<mpsc::Sender<OmniPaxosMessage>>,
 ) -> io::Result<TcpStream> {
     if let Some(sender) = local_sender {
         // If a local mpsc sender is provided, use it for local delivery
@@ -33,9 +33,9 @@ pub async fn send_omnipaxos_message(
 
 // For compatibility: send a single message
 pub async fn send_omnipaxos_message_single(
-    message: OmniPaxosECMessage,
+    message: OmniPaxosMessage,
     addr: &str,
-    local_sender: Option<mpsc::Sender<OmniPaxosECMessage>>,
+    local_sender: Option<mpsc::Sender<OmniPaxosMessage>>,
 ) -> io::Result<TcpStream> {
     send_omnipaxos_message(vec![message], addr, local_sender).await
 }
@@ -43,14 +43,14 @@ pub async fn send_omnipaxos_message_single(
 // Receive a batch of messages
 pub async fn receive_omnipaxos_message(
     socket: &TcpListener,
-) -> io::Result<(TcpStream, Vec<OmniPaxosECMessage>)> {
+) -> io::Result<(TcpStream, Vec<OmniPaxosMessage>)> {
     let (mut stream, _src) = socket.accept().await?;
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
     let len = u32::from_be_bytes(len_buf) as usize;
     let mut buffer = vec![0; len];
     stream.read_exact(&mut buffer).await?;
-    let messages: Vec<OmniPaxosECMessage> = match bincode::deserialize(&buffer) {
+    let messages: Vec<OmniPaxosMessage> = match bincode::deserialize(&buffer) {
         Ok(msgs) => msgs,
         Err(e) => {
             error!("Failed to deserialize OmnipaxosMessage batch: {:?}", e);
