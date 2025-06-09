@@ -1,11 +1,12 @@
 use crate::base_libs::_ec::ECKeyValue;
+use crate::classes::node::_node::OmniPaxosRequest;
 use actix_web::{web, HttpResponse, Responder};
 use omnipaxos::erasure::log_entry::OperationType;
 use omnipaxos::{erasure::ec_service::EntryFragment, util::LogEntry};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, instrument};
+use tracing::{error, info, instrument};
 
 use super::_node::Node;
 
@@ -84,6 +85,34 @@ struct EndpointDoc {
 }
 
 impl Node {
+    // Utility function to send a request to OmniPaxos and get the response
+    pub async fn send_omnipaxos_request(&self, entry: ECKeyValue) -> String {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        match self
+            .omnipaxos_sender
+            .send(OmniPaxosRequest::Client {
+                entry,
+                response: tx,
+            })
+            .await
+        {
+            Ok(_) => match rx.await {
+                Ok(response) => response,
+                Err(e) => {
+                    let error_msg = format!("Failed to receive response from OmniPaxos: {}", e);
+                    error!("[OMNIPAXOS] {}", error_msg);
+                    error_msg
+                }
+            },
+            Err(e) => {
+                let error_msg = format!("Failed to send request to OmniPaxos: {}", e);
+                error!("[OMNIPAXOS] {}", error_msg);
+                error_msg
+            }
+        }
+    }
+
     #[instrument(level = "debug", skip_all)]
     pub async fn http_healthcheck(node_data: web::Data<Arc<RwLock<Node>>>) -> impl Responder {
         info!("[REQUEST] Received healthcheck requesst");
@@ -305,7 +334,7 @@ impl Node {
         let status;
 
         {
-            let omni = node.omnipaxos.lock().unwrap();
+            let omni = node.omnipaxos.lock().await;
 
             // Get current leader
             if let Some((leader, term)) = omni.get_current_leader() {
@@ -346,7 +375,7 @@ impl Node {
         let mut is_leader: bool = false;
         let mut current_leader: Option<u64> = None;
         {
-            let omni = node.omnipaxos.lock().unwrap();
+            let omni = node.omnipaxos.lock().await;
             decided_entries = omni.get_decided_idx() as u64;
             // Get leadership info
             if let Some((leader, _is_accepted)) = omni.get_current_leader() {
@@ -441,7 +470,7 @@ impl Node {
         let node = node_data.read().await;
         let mut logs = Vec::new();
         {
-            let omni = node.omnipaxos.lock().unwrap();
+            let omni = node.omnipaxos.lock().await;
             if let Some(entries) = omni.read_decided_suffix(0) {
                 for (idx, entry) in entries.iter().enumerate() {
                     match entry {

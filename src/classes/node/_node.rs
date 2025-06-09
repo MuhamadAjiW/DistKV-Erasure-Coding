@@ -1,19 +1,18 @@
 use core::panic;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use omnipaxos::erasure::log_entry::OperationType;
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::time::Duration;
 
 use actix_web::{web, App, HttpServer};
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
-use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, sleep};
 use tokio::{net::TcpListener, sync::RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::base_libs::_ec::ECKeyValue;
 use crate::base_libs::network::_messages::receive_omnipaxos_message;
-use crate::base_libs::network::_messages::send_omnipaxos_message;
-use crate::base_libs::network::_server::OmniPaxosServerEC;
-use crate::config::_constants::{BUFFER_SIZE, ELECTION_TICK_TIMEOUT};
+use crate::config::_constants::{BUFFER_SIZE, ELECTION_TICK_TIMEOUT, TICK_PERIOD};
 use crate::{
     base_libs::{
         _types::{OmniPaxosECKV, OmniPaxosECMessage},
@@ -22,9 +21,7 @@ use crate::{
     classes::config::_config::Config,
     config::_constants::RECONNECT_INTERVAL,
 };
-use omnipaxos::erasure::log_entry::OperationType;
-use omnipaxos::util::LogEntry;
-use omnipaxos::util::NodeId;
+use omnipaxos::util::{LogEntry, NodeId};
 use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
 };
@@ -144,8 +141,8 @@ impl Node {
                 }
             }
         };
-        let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(4096);
-        let omnipaxos_arc = Arc::new(Mutex::new(omnipaxos));
+        let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(BUFFER_SIZE);
+        let omnipaxos_arc = Arc::new(tokio::sync::Mutex::new(omnipaxos));
 
         // Spawn OmniPaxos main event loop (handles incoming network messages and ticks)
         let omnipaxos_clone = omnipaxos_arc.clone();
@@ -162,10 +159,12 @@ impl Node {
             use rand::Rng;
             rand::rng().random_range(0..1000)
         };
+
+        // Main OmniPaxos event loop
         tokio::spawn(async move {
             info!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
             sleep(Duration::from_millis(jitter_ms)).await;
-            let mut tick_interval = interval(Duration::from_millis(200));
+            let mut tick_interval = interval(TICK_PERIOD);
             loop {
                 tokio::select! {
                     biased;
@@ -175,8 +174,7 @@ impl Node {
                             OmniPaxosRequest::Network { message } => {
                                 debug!("[OMNIPAXOS] Incoming BLE message: from {:?} to {:?} (msg: {:?})", message.get_sender(), message.get_receiver(), message);
                                 {
-                                    let mut omni = omnipaxos_clone.lock().unwrap();
-                                    debug!("[OMNIPAXOS] Handling incoming network message: {:?}", message);
+                                    let mut omni = omnipaxos_clone.lock().await;
                                     omni.handle_incoming(message);
                                     omni.take_outgoing_messages(&mut send_msgs);
                                 }
@@ -185,7 +183,7 @@ impl Node {
                                 debug!("[OMNIPAXOS] Client request: {:?}", entry);
                                 let mut result = "Operation failed".to_string();
                                 {
-                                    let mut omni = omnipaxos_clone.lock().unwrap();
+                                    let mut omni = omnipaxos_clone.lock().await;
 
                                     // Handle the operation based on type
                                     match entry.op {
@@ -274,7 +272,7 @@ impl Node {
                     _ = tick_interval.tick() => {
                         let mut send_msgs = Vec::new();
                         {
-                            let mut omni = omnipaxos_clone.lock().unwrap();
+                            let mut omni = omnipaxos_clone.lock().await;
                             debug!("[OMNIPAXOS] Tick");
                             omni.tick();
                             if let Some((leader, _)) = omni.get_current_leader() {
@@ -412,101 +410,9 @@ impl Node {
         });
     }
 
-    pub async fn run_omnipaxos_loop(node_arc: Arc<RwLock<Node>>) {
-        // Build peer_addresses: NodeId -> String ("ip:port")
-        let (my_pid, peer_addresses) = {
-            let node = node_arc.read().await;
-            let mut cluster_list = node.cluster_list.read().await.clone();
-            cluster_list.sort(); // Ensure deterministic order
-            let mut map = HashMap::new();
-            for (i, addr) in cluster_list.iter().enumerate() {
-                map.insert((i + 1) as NodeId, addr.clone());
-            }
-            info!("[INIT] Peer address map: {:?}", map);
-            ((node.cluster_index + 1) as NodeId, map)
-        };
-
-        let (local_tx, local_rx) = mpsc::channel(BUFFER_SIZE);
-        let omni_paxos = {
-            let node = node_arc.read().await;
-            node.omnipaxos.clone()
-        };
-        let mut server = OmniPaxosServerEC {
-            omni_paxos,
-            incoming: local_rx, // not used for network
-            outgoing: {
-                let mut map = HashMap::new();
-                map.insert(my_pid, local_tx.clone());
-                map
-            },
-            peer_addresses: peer_addresses.clone(),
-            message_buffer: vec![],
-        };
-        tokio::spawn(async move {
-            loop {
-                // Tick and send outgoing messages periodically
-                server.omni_paxos.lock().unwrap().tick();
-                {
-                    let mut buffer = Vec::new();
-                    {
-                        let mut omni = server.omni_paxos.lock().unwrap();
-                        omni.take_outgoing_messages(&mut buffer);
-                    }
-                    // Now send messages in buffer after lock is released
-                    let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
-                    for msg in buffer {
-                        let receiver = msg.get_receiver();
-                        if let Some(local_channel) = server.outgoing.get_mut(&receiver) {
-                            // Fast-path: local delivery
-                            let _ = local_channel.send(msg).await;
-                        } else if let Some(_addr) = server.peer_addresses.get(&receiver) {
-                            peer_batches.entry(receiver).or_default().push(msg);
-                        }
-                    }
-                    for (receiver, batch) in peer_batches {
-                        if let Some(addr) = server.peer_addresses.get(&receiver) {
-                            let _ = send_omnipaxos_message(batch, addr, None).await;
-                        }
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-        });
-    }
-
-    // Utility function to send a request to OmniPaxos and get the response
-    pub async fn send_omnipaxos_request(&self, entry: ECKeyValue) -> String {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        match self
-            .omnipaxos_sender
-            .send(OmniPaxosRequest::Client {
-                entry,
-                response: tx,
-            })
-            .await
-        {
-            Ok(_) => match rx.await {
-                Ok(response) => response,
-                Err(e) => {
-                    let error_msg = format!("Failed to receive response from OmniPaxos: {}", e);
-                    error!("[OMNIPAXOS] {}", error_msg);
-                    error_msg
-                }
-            },
-            Err(e) => {
-                let error_msg = format!("Failed to send request to OmniPaxos: {}", e);
-                error!("[OMNIPAXOS] {}", error_msg);
-                error_msg
-            }
-        }
-    }
-
     pub async fn run(node_arc: Arc<RwLock<Node>>) {
-        // Start TCP listener loop (already done in run_tcp_loop)
         Self::run_tcp_loop(node_arc.clone());
         Self::run_http_loop(node_arc.clone());
-        Self::run_omnipaxos_loop(node_arc.clone()).await;
         info!("[INIT] Node is now running");
 
         // Wait for shutdown

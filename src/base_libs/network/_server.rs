@@ -1,7 +1,7 @@
 use omnipaxos::util::NodeId;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::time;
 use tracing::{debug, error};
 
@@ -22,7 +22,7 @@ impl OmniPaxosServerEC {
     async fn send_outgoing_msgs(&mut self) {
         let mut buffer = Vec::new();
         {
-            let mut omni = self.omni_paxos.lock().unwrap();
+            let mut omni = self.omni_paxos.lock().await;
             omni.take_outgoing_messages(&mut buffer);
         }
         let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
@@ -55,7 +55,7 @@ impl OmniPaxosServerEC {
                 _ = tick_interval.tick() => {
                     debug!("[SERVER] Tick");
                     {
-                        let mut omni = self.omni_paxos.lock().unwrap();
+                        let mut omni = self.omni_paxos.lock().await;
                         omni.tick();
                     }
                 },
@@ -66,7 +66,7 @@ impl OmniPaxosServerEC {
                 Some(in_msg) = self.incoming.recv() => {
                     debug!("[SERVER] Received incoming message");
                     {
-                        let mut omni = self.omni_paxos.lock().unwrap();
+                        let mut omni = self.omni_paxos.lock().await;
                         omni.handle_incoming(in_msg);
                     }
                 },
