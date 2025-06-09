@@ -222,7 +222,7 @@ run_all() {
 
 virtual_users=(
     # 1 5 10 25 50 100
-    10
+    500
 )
 
 size=(
@@ -232,17 +232,16 @@ size=(
 bench_system() {
     echo "Running system benchmark..."
     local base_url_env="$1"
+    local base_url_arg=""
     if [ -n "$base_url_env" ]; then
-        for vus_value in "${virtual_users[@]}"; do
-            for size_value in "${size[@]}"; do
-                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "BASE_URL=$base_url_env" --quiet ./benchmark/script.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
-            done
-        done
-    else
-        echo "Error: No environment variable provided for benchmark. Usage: bench_system 'http://<leader_ip>:<leader_http_port>'"
-        echo "Example: ./scripts.sh bench_system 'http://127.0.0.1:8080'"
+        base_url_arg="-e \"BASE_URL=$base_url_env\""
     fi
+    for vus_value in "${virtual_users[@]}"; do
+        for size_value in "${size[@]}"; do
+            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
+            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
+        done
+    done
 }
 bench_baseline() {
     echo "Running benchmark on etcd for baseline..."
@@ -250,7 +249,7 @@ bench_baseline() {
     for vus_value in "${virtual_users[@]}"; do
         for size_value in "${size[@]}"; do
             echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}"
-            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.json"
+            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-etcd.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.json"
         done
     done
 }
