@@ -246,7 +246,15 @@ bench_system() {
     for vus_value in "${virtual_users[@]}"; do
         for size_value in "${size[@]}"; do
             echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
+            # Start mpstat in the background
+            mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" &
+            MPSTAT_PID=$!
+            # Run k6
             k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
+            # Stop mpstat
+            kill $MPSTAT_PID
+            # Optional: Print average CPU usage
+            awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu.txt"
         done
     done
 }
@@ -256,9 +264,67 @@ bench_baseline() {
     for vus_value in "${virtual_users[@]}"; do
         for size_value in "${size[@]}"; do
             echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}"
+            # Start mpstat in the background
+            mpstat 1 > "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu.log" &
+            MPSTAT_PID=$!
+            # Run k6
             k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-etcd.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.json"
+            # Stop mpstat
+            kill $MPSTAT_PID
+            # Optional: Print average CPU usage
+            awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu.log" > "./benchmark/results/cpu_avg_baseline_${size_value}b_${vus_value}vu.txt"
         done
     done
+}
+
+run_bench_suite() {
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    echo "Starting benchmark suite..."
+
+    # Benchmark replication
+    echo "Benchmarking replication..."
+    run_all
+    
+    sleep 30
+
+    bench_system
+
+    if [ -d ./benchmark/results/replication ]; then
+        mv ./benchmark/results/replication ./benchmark/results/replication_$timestamp
+    fi
+    mkdir -p ./benchmark/results/replication
+    mv ./benchmark/results/_system_*.json ./benchmark/results/replication/
+    mv ./benchmark/results/cpu_*.log ./benchmark/results/replication/
+    mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/replication/
+
+    stop_all
+
+    sleep 5
+    echo "Replication benchmark completed. Results are stored in ./benchmark/results/replication."
+
+    # Benchmark erasure coding
+    echo "Benchmarking erasure coding..."
+    run_all --erasure
+
+    sleep 30
+
+    bench_system
+
+    if [ -d ./benchmark/results/erasure ]; then
+        mv ./benchmark/results/erasure ./benchmark/results/erasure_$timestamp
+    fi
+    mkdir -p ./benchmark/results/erasure
+    mv ./benchmark/results/_system_*.json ./benchmark/results/erasure/
+    mv ./benchmark/results/cpu_*.log ./benchmark/results/erasure/
+    mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/erasure/
+
+    stop_all
+
+    sleep 5
+    echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
+
+    echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
+    echo "You can analyze the results using k6's HTML report generation or other tools."    
 }
 
 if [ "$1" == "clean" ]; then
@@ -275,6 +341,8 @@ elif [ "$1" == "bench_system" ]; then
     bench_system "$2"
 elif [ "$1" == "bench_baseline" ]; then
     bench_baseline
+elif [ "$1" == "run_bench_suite" ]; then
+    run_bench_suite
 elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|help}"
     echo ""
@@ -302,6 +370,9 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo ""
     echo "  bench_baseline                                                              : "
     echo "          Runs k6 benchmark for baseline."
+    echo ""
+    echo "  run_bench_suite                                                             : "
+    echo "          Runs the full benchmark suite, including replication and erasure coding benchmarks."
     echo ""
     echo "  help                                                                        : "
     echo "          Displays this help message."

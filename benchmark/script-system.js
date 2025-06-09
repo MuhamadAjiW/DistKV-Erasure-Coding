@@ -5,7 +5,7 @@ import { b64encode } from 'k6/encoding';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:2084';
 const VUS = __ENV.VUS || 1;
 const SIZE = __ENV.SIZE || 10240;
-const DURATION = __ENV.DURATION || '10s';
+const DURATION = __ENV.DURATION || '60s';
 
 export const options = {
     vus: VUS,
