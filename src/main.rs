@@ -58,15 +58,21 @@ async fn main() -> Result<(), io::Error> {
     info!("[INIT] Starting node with address: {}", &address);
 
     if cli.erasure {
-        let node = Node::from_config(address, &cli.conf).await;
-        info!("[INIT] Node started with address: {}", &node.address);
-        let node_arc = Arc::new(RwLock::new(node));
-        Node::run(node_arc).await;
-    } else {
         let node = ECNode::from_config(address, &cli.conf).await;
-        info!("[INIT] Node started with address: {}", &node.address);
+        info!(
+            "[INIT] Node started with address without erasure coding: {}",
+            &node.address
+        );
         let node_arc = Arc::new(RwLock::new(node));
         ECNode::run(node_arc).await;
+    } else {
+        let node = Node::from_config(address, &cli.conf).await;
+        info!(
+            "[INIT] Node started with address with erasure coding: {}",
+            &node.address
+        );
+        let node_arc = Arc::new(RwLock::new(node));
+        Node::run(node_arc).await;
     }
 
     Ok(())
