@@ -9,6 +9,8 @@ use tracing::{debug, error, info, instrument, warn};
 
 use crate::base_libs::_ec::ECKeyValue;
 use crate::base_libs::network::_messages::receive_omnipaxos_message;
+use crate::base_libs::network::_messages::send_omnipaxos_message;
+use crate::base_libs::network::_server::OmniPaxosServerEC;
 use crate::config::_constants::ELECTION_TICK_TIMEOUT;
 use crate::{
     base_libs::{
@@ -20,9 +22,11 @@ use crate::{
 };
 use omnipaxos::erasure::log_entry::OperationType;
 use omnipaxos::util::LogEntry;
+use omnipaxos::util::NodeId;
 use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
 };
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum OmniPaxosRequest {
@@ -140,6 +144,7 @@ impl Node {
         };
         let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(128);
         let omnipaxos_arc = Arc::new(Mutex::new(omnipaxos));
+
         // Spawn OmniPaxos main event loop (handles incoming network messages and ticks)
         let omnipaxos_clone = omnipaxos_arc.clone();
         let peer_addresses = {
@@ -149,6 +154,7 @@ impl Node {
             }
             map
         };
+
         // Generate random jitter before entering async block to avoid Send issues
         let jitter_ms = {
             use rand::Rng;
@@ -172,7 +178,7 @@ impl Node {
                                     debug!("[OMNIPAXOS] Handling incoming network message: {:?}", message);
                                     omni.handle_incoming(message);
                                     omni.take_outgoing_messages(&mut msg_buffer);
-                                } // MutexGuard dropped here
+                                }
                                 send_msgs.append(&mut msg_buffer);
                             }
                             OmniPaxosRequest::Client { entry, response } => {
@@ -195,10 +201,13 @@ impl Node {
                                         },
                                         OperationType::GET => {
                                             info!("[OMNIPAXOS] Processing GET for key: {}", entry.key);
+
+                                            // _TODO: Create memory cache and retrieval from paxos nodes
                                             // Search through decided entries to find the key
                                             let mut key_found = false;
                                             if let Some(log_entries) = omni.read_decided_suffix(0) {
                                                 for log_entry in log_entries.iter().rev() {
+
                                                     // Match on the LogEntry enum
                                                     match log_entry {
                                                         LogEntry::Decided(entry_data) => {
@@ -243,7 +252,7 @@ impl Node {
                                     }
 
                                     omni.take_outgoing_messages(&mut msg_buffer);
-                                } // MutexGuard dropped here
+                                }
 
                                 // Send the result back to the HTTP handler
                                 if let Err(e) = response.send(result) {
@@ -274,7 +283,8 @@ impl Node {
                                 debug!("[OMNIPAXOS] Current leader: {}", leader);
                             }
                             omni.take_outgoing_messages(&mut msg_buffer);
-                        } // MutexGuard dropped here
+                        }
+
                         send_msgs.append(&mut msg_buffer);
                         for msg in send_msgs.drain(..) {
                             let receiver = msg.get_receiver();
@@ -436,12 +446,6 @@ impl Node {
     }
 
     pub async fn run(node_arc: Arc<RwLock<Node>>) {
-        use crate::base_libs::network::_messages::send_omnipaxos_message;
-        use crate::base_libs::network::_server::OmniPaxosServerEC;
-        use omnipaxos::util::NodeId;
-        use std::collections::HashMap;
-        use tokio::sync::mpsc;
-
         // Build peer_addresses: NodeId -> String ("ip:port")
         let (my_pid, peer_addresses) = {
             let node = node_arc.read().await;
@@ -457,6 +461,7 @@ impl Node {
 
         // Start TCP listener loop (already done in run_tcp_loop)
         Self::run_tcp_loop(node_arc.clone());
+        Self::run_http_loop(node_arc.clone());
         info!("[INIT] Node is now running");
 
         // Start OmniPaxosServerEC with a local mpsc channel for self (not used for network)
