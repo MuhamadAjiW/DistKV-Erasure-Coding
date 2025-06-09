@@ -20,17 +20,18 @@ pub struct OmniPaxosServerEC {
 
 impl OmniPaxosServerEC {
     async fn send_outgoing_msgs(&mut self) {
-        self.omni_paxos
-            .lock()
-            .unwrap()
-            .take_outgoing_messages(&mut self.message_buffer);
+        let mut buffer = Vec::new();
+        {
+            let mut omni = self.omni_paxos.lock().unwrap();
+            omni.take_outgoing_messages(&mut buffer);
+        }
         let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
-        for msg in self.message_buffer.drain(..) {
+        for msg in buffer.drain(..) {
             let receiver = msg.get_receiver();
             if let Some(local_channel) = self.outgoing.get_mut(&receiver) {
                 // Fast-path: local delivery
                 let _ = local_channel.send(msg).await;
-            } else if let Some(addr) = self.peer_addresses.get(&receiver) {
+            } else if self.peer_addresses.contains_key(&receiver) {
                 peer_batches.entry(receiver).or_default().push(msg);
             } else {
                 error!("No channel or address for receiver {}", receiver);
@@ -53,7 +54,10 @@ impl OmniPaxosServerEC {
             tokio::select! {
                 _ = tick_interval.tick() => {
                     debug!("[SERVER] Tick");
-                    self.omni_paxos.lock().unwrap().tick();
+                    {
+                        let mut omni = self.omni_paxos.lock().unwrap();
+                        omni.tick();
+                    }
                 },
                 _ = outgoing_interval.tick() => {
                     debug!("[SERVER] Outgoing interval");
@@ -61,7 +65,10 @@ impl OmniPaxosServerEC {
                 },
                 Some(in_msg) = self.incoming.recv() => {
                     debug!("[SERVER] Received incoming message");
-                    self.omni_paxos.lock().unwrap().handle_incoming(in_msg);
+                    {
+                        let mut omni = self.omni_paxos.lock().unwrap();
+                        omni.handle_incoming(in_msg);
+                    }
                 },
                 else => { break; }
             }
