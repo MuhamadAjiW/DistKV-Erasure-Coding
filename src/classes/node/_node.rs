@@ -18,7 +18,6 @@ use crate::{
         network::_address::Address,
     },
     classes::config::_config::Config,
-    classes::node::_node_http_comms,
     config::_constants::RECONNECT_INTERVAL,
 };
 use omnipaxos::erasure::log_entry::OperationType;
@@ -143,7 +142,7 @@ impl Node {
                 }
             }
         };
-        let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(128);
+        let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(4096);
         let omnipaxos_arc = Arc::new(Mutex::new(omnipaxos));
 
         // Spawn OmniPaxos main event loop (handles incoming network messages and ticks)
@@ -263,14 +262,16 @@ impl Node {
                                 send_msgs.append(&mut msg_buffer);
                             }
                         }
+                        // Batch outgoing messages per peer
+                        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
                         for msg in send_msgs.drain(..) {
                             let receiver = msg.get_receiver();
-                            let sender = msg.get_sender();
+                            peer_batches.entry(receiver).or_default().push(msg);
+                        }
+                        for (receiver, batch) in peer_batches {
                             if let Some(addr) = peer_addresses.get(&receiver) {
-                                debug!("[OMNIPAXOS] Outgoing BLE message: from {:?} to {:?} at {} (msg: {:?})", sender, receiver, addr, msg);
-                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(msg, addr, None).await;
-                            } else {
-                                debug!("[OMNIPAXOS] No peer address for receiver {}", receiver);
+                                debug!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
+                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(batch, addr, None).await;
                             }
                         }
                     }
@@ -287,13 +288,16 @@ impl Node {
                         }
 
                         send_msgs.append(&mut msg_buffer);
+                        // Batch outgoing messages per peer
+                        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
                         for msg in send_msgs.drain(..) {
                             let receiver = msg.get_receiver();
+                            peer_batches.entry(receiver).or_default().push(msg);
+                        }
+                        for (receiver, batch) in peer_batches {
                             if let Some(addr) = peer_addresses.get(&receiver) {
-                                debug!("[OMNIPAXOS] Sending outgoing BLE message to {} at {}: {:?}", receiver, addr, msg);
-                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(msg, addr, None).await;
-                            } else {
-                                debug!("[OMNIPAXOS] No peer address for receiver {}", receiver);
+                                debug!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
+                                let _ = crate::base_libs::network::_messages::send_omnipaxos_message(batch, addr, None).await;
                             }
                         }
                     }
@@ -340,17 +344,19 @@ impl Node {
             );
             loop {
                 match receive_omnipaxos_message(&socket).await {
-                    Ok((_stream, message)) => {
-                        debug!("[TCP] Received message: {:?}", message);
-                        let node = node_arc.read().await;
-                        let send_result = node
-                            .omnipaxos_sender
-                            .send(OmniPaxosRequest::Network { message })
-                            .await;
-                        if let Err(e) = send_result {
-                            error!("[TCP] Failed to forward message to OmniPaxos: {}", e);
-                        } else {
-                            debug!("[TCP] Forwarded message to OmniPaxos event loop");
+                    Ok((_stream, messages)) => {
+                        for message in messages {
+                            debug!("[TCP] Received message: {:?}", message);
+                            let node = node_arc.read().await;
+                            let send_result = node
+                                .omnipaxos_sender
+                                .send(OmniPaxosRequest::Network { message })
+                                .await;
+                            if let Err(e) = send_result {
+                                error!("[TCP] Failed to forward message to OmniPaxos: {}", e);
+                            } else {
+                                debug!("[TCP] Forwarded message to OmniPaxos event loop");
+                            }
                         }
                     }
                     Err(e) => {
@@ -459,7 +465,7 @@ impl Node {
         info!("[INIT] Node is now running");
 
         // Start OmniPaxosServerEC with a local mpsc channel for self (not used for network)
-        let (local_tx, local_rx) = mpsc::channel(128);
+        let (local_tx, local_rx) = mpsc::channel(4096); // Increased buffer size
         let omni_paxos = {
             let node = node_arc.read().await;
             node.omnipaxos.clone()
@@ -484,10 +490,19 @@ impl Node {
                     .lock()
                     .unwrap()
                     .take_outgoing_messages(&mut server.message_buffer);
+                let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
                 for msg in server.message_buffer.drain(..) {
                     let receiver = msg.get_receiver();
+                    if let Some(local_channel) = server.outgoing.get_mut(&receiver) {
+                        // Fast-path: local delivery
+                        let _ = local_channel.send(msg).await;
+                    } else if let Some(_addr) = server.peer_addresses.get(&receiver) {
+                        peer_batches.entry(receiver).or_default().push(msg);
+                    }
+                }
+                for (receiver, batch) in peer_batches {
                     if let Some(addr) = server.peer_addresses.get(&receiver) {
-                        let _ = send_omnipaxos_message(msg, addr, None).await;
+                        let _ = send_omnipaxos_message(batch, addr, None).await;
                     }
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;

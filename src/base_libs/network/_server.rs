@@ -24,24 +24,24 @@ impl OmniPaxosServerEC {
             .lock()
             .unwrap()
             .take_outgoing_messages(&mut self.message_buffer);
+        let mut peer_batches: HashMap<NodeId, Vec<OmniPaxosECMessage>> = HashMap::new();
         for msg in self.message_buffer.drain(..) {
             let receiver = msg.get_receiver();
             if let Some(local_channel) = self.outgoing.get_mut(&receiver) {
-                debug!("[SERVER] Sending message to local receiver {}", receiver);
-                // Local delivery (same process)
+                // Fast-path: local delivery
                 let _ = local_channel.send(msg).await;
             } else if let Some(addr) = self.peer_addresses.get(&receiver) {
-                debug!(
-                    "[SERVER] Sending message to network peer {} at {}",
-                    receiver, addr
-                );
-                // Network delivery
-                let send_result = send_omnipaxos_message(msg, addr, None).await;
-                if let Err(e) = send_result {
-                    error!("[SERVER] Failed to send message to {}: {}", addr, e);
-                }
+                peer_batches.entry(receiver).or_default().push(msg);
             } else {
                 error!("No channel or address for receiver {}", receiver);
+            }
+        }
+        for (receiver, batch) in peer_batches {
+            if let Some(addr) = self.peer_addresses.get(&receiver) {
+                let send_result = send_omnipaxos_message(batch, addr, None).await;
+                if let Err(e) = send_result {
+                    error!("[SERVER] Failed to send batch to {}: {}", addr, e);
+                }
             }
         }
     }

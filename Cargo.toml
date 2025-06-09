@@ -24,7 +24,7 @@ tracing-subscriber = "0.3"
 tracing-appender = "0.2"
 clap = { version = "4", features = ["derive"] }
 moka = { version = "0.12", features = ["future"] }
-omnipaxos = { path = "./omnipaxos/omnipaxos", features = ["macros", "logging"] }
+omnipaxos = { path = "./omnipaxos/omnipaxos", features = ["macros"] }
 omnipaxos_storage = { path = "./omnipaxos/omnipaxos_storage", features = [
   "persistent_storage",
 ] }
