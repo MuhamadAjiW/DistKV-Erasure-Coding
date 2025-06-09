@@ -134,7 +134,7 @@ run_node() {
     local cmd="cargo run --release -- --addr ${addr} --conf ${config_file} ${file_output} ${trace}"
 
     if [ -n "$file_output" ]; then
-        local log_dir="./log"
+        local log_dir="./logs"
         mkdir -p "$log_dir"
         local log_file="${log_dir}/node_${addr//:/_}.log"
         echo "Logging to file: ${log_file}"
@@ -147,7 +147,7 @@ run_node() {
 
 clean() {
     echo "Cleaning up node persistent data..."
-    rm -rf ./db/node* ./log/*
+    rm -rf ./db/node* ./logs/*
     echo "Cleanup complete."
 }
 

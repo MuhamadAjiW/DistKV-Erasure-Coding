@@ -18,6 +18,7 @@ use crate::{
         network::_address::Address,
     },
     classes::config::_config::Config,
+    classes::node::_node_http_comms,
     config::_constants::RECONNECT_INTERVAL,
 };
 use omnipaxos::erasure::log_entry::OperationType;
@@ -387,14 +388,7 @@ impl Node {
                             .app_data(web::Data::new(node_arc_clone.clone()))
                             .app_data(web::PayloadConfig::new(max_payload))
                             .app_data(web::JsonConfig::default().limit(max_payload))
-                            .route("/health", web::get().to(Node::http_healthcheck))
-                            .route("/put", web::post().to(Node::http_put))
-                            .route("/get", web::post().to(Node::http_get))
-                            .route("/delete", web::post().to(Node::http_delete))
-                            .route("/cluster", web::get().to(Node::http_cluster_state))
-                            .route("/bulk", web::post().to(Node::http_bulk_operation))
-                            .route("/status", web::get().to(Node::http_status))
-                            .route("/docs", web::get().to(Node::http_api_docs))
+                            .configure(Node::register_services)
                     })
                     .bind((address.ip.as_str(), address.port))
                     {

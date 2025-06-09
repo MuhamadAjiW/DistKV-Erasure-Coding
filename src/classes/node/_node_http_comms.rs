@@ -1,7 +1,7 @@
 use crate::base_libs::_ec::ECKeyValue;
 use actix_web::{web, HttpResponse, Responder};
-use omnipaxos::erasure::ec_service::EntryFragment;
 use omnipaxos::erasure::log_entry::OperationType;
+use omnipaxos::{erasure::ec_service::EntryFragment, util::LogEntry};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -200,44 +200,6 @@ impl Node {
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub async fn http_cluster_state(node_data: web::Data<Arc<RwLock<Node>>>) -> impl Responder {
-        info!("[REQUEST] Cluster state request received");
-
-        let node = node_data.read().await;
-        let node_id = (node.cluster_index + 1) as u64;
-        let peers = node.cluster_list.read().await.clone();
-
-        let mut leader_id = None;
-        let commit_index;
-        let status;
-
-        {
-            let omni = node.omnipaxos.lock().unwrap();
-
-            // Get current leader
-            if let Some((leader, term)) = omni.get_current_leader() {
-                leader_id = Some(leader);
-                status = format!("Term: {}", term);
-            } else {
-                status = "No leader elected".to_string();
-            }
-
-            // Get commit index directly
-            commit_index = omni.get_decided_idx() as u64;
-        }
-
-        let response = ClusterStateResponse {
-            node_id,
-            leader_id,
-            commit_index,
-            peers,
-            status,
-        };
-
-        HttpResponse::Ok().json(response)
-    }
-
-    #[instrument(level = "debug", skip_all)]
     pub async fn http_bulk_operation(
         node_data: web::Data<Arc<RwLock<Node>>>,
         body: web::Json<BulkOperationBody>,
@@ -331,7 +293,43 @@ impl Node {
         HttpResponse::Ok().json(BulkOperationResponse { results })
     }
 
-    #[instrument(level = "debug", skip_all)]
+    pub async fn http_cluster_state(node_data: web::Data<Arc<RwLock<Node>>>) -> impl Responder {
+        info!("[REQUEST] Cluster state request received");
+
+        let node = node_data.read().await;
+        let node_id = (node.cluster_index + 1) as u64;
+        let peers = node.cluster_list.read().await.clone();
+
+        let mut leader_id = None;
+        let commit_index;
+        let status;
+
+        {
+            let omni = node.omnipaxos.lock().unwrap();
+
+            // Get current leader
+            if let Some((leader, term)) = omni.get_current_leader() {
+                leader_id = Some(leader);
+                status = format!("Term: {}", term);
+            } else {
+                status = "No leader elected".to_string();
+            }
+
+            // Get commit index directly
+            commit_index = omni.get_decided_idx() as u64;
+        }
+
+        let response = ClusterStateResponse {
+            node_id,
+            leader_id,
+            commit_index,
+            peers,
+            status,
+        };
+
+        HttpResponse::Ok().json(response)
+    }
+
     pub async fn http_status(node_data: web::Data<Arc<RwLock<Node>>>) -> impl Responder {
         info!("[REQUEST] Status request received");
 
@@ -371,7 +369,6 @@ impl Node {
         HttpResponse::Ok().json(response)
     }
 
-    #[instrument(level = "debug", skip_all)]
     pub async fn http_api_docs() -> impl Responder {
         info!("[REQUEST] API documentation request received");
 
@@ -437,5 +434,70 @@ impl Node {
         let api_docs = ApiDocumentation { endpoints };
 
         HttpResponse::Ok().json(api_docs)
+    }
+
+    pub async fn http_logs(node_data: web::Data<Arc<RwLock<Node>>>) -> impl Responder {
+        info!("[REQUEST] Logs request received");
+        let node = node_data.read().await;
+        let mut logs = Vec::new();
+        {
+            let omni = node.omnipaxos.lock().unwrap();
+            if let Some(entries) = omni.read_decided_suffix(0) {
+                for (idx, entry) in entries.iter().enumerate() {
+                    match entry {
+                        LogEntry::Decided(e) => {
+                            logs.push(serde_json::json!({
+                                "index": idx,
+                                "type": "Decided",
+                                "entry": e
+                            }));
+                        }
+                        LogEntry::Undecided(e) => {
+                            logs.push(serde_json::json!({
+                                "index": idx,
+                                "type": "Undecided",
+                                "entry": e
+                            }));
+                        }
+                        LogEntry::Trimmed(idx_trimmed) => {
+                            logs.push(serde_json::json!({
+                                "index": idx,
+                                "type": "Trimmed",
+                                "trimmed_idx": idx_trimmed
+                            }));
+                        }
+                        LogEntry::Snapshotted(snap) => {
+                            logs.push(serde_json::json!({
+                                "index": idx,
+                                "type": "Snapshotted",
+                                "trimmed_idx": snap.trimmed_idx,
+                                "snapshot": snap.snapshot
+                            }));
+                        }
+                        LogEntry::StopSign(ss, decided) => {
+                            logs.push(serde_json::json!({
+                                "index": idx,
+                                "type": "StopSign",
+                                "stopsign": ss,
+                                "decided": decided
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+        HttpResponse::Ok().json(logs)
+    }
+
+    pub fn register_services(cfg: &mut web::ServiceConfig) {
+        cfg.service(web::resource("/health").route(web::get().to(Self::http_healthcheck)))
+            .service(web::resource("/get").route(web::post().to(Self::http_get)))
+            .service(web::resource("/put").route(web::post().to(Self::http_put)))
+            .service(web::resource("/delete").route(web::post().to(Self::http_delete)))
+            .service(web::resource("/bulk").route(web::post().to(Self::http_bulk_operation)))
+            .service(web::resource("/status").route(web::get().to(Self::http_status)))
+            .service(web::resource("/cluster").route(web::get().to(Self::http_cluster_state)))
+            .service(web::resource("/docs").route(web::get().to(Self::http_api_docs)))
+            .service(web::resource("/logs").route(web::get().to(Self::http_logs)));
     }
 }
