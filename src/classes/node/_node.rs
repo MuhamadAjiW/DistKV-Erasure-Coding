@@ -18,6 +18,8 @@ use crate::{
     classes::config::_config::Config,
     config::_constants::RECONNECT_INTERVAL,
 };
+use omnipaxos::erasure::log_entry::OperationType;
+use omnipaxos::util::LogEntry;
 use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
 };
@@ -36,6 +38,7 @@ pub enum OmniPaxosRequest {
 pub struct Node {
     // Base attributes
     pub running: bool,
+    pub start_time: std::time::Instant,
 
     // HTTP Interface
     pub http_address: Address,
@@ -126,7 +129,7 @@ impl Node {
         let socket = loop {
             match TcpListener::bind(address.to_string()).await {
                 Ok(sock) => {
-                    debug!("[TCP] Successfully bound to address: {}", address);
+                    info!("[TCP] Successfully bound to address: {}", address);
                     break Arc::new(sock);
                 }
                 Err(e) => {
@@ -152,7 +155,7 @@ impl Node {
             rand::rng().random_range(0..1000)
         };
         tokio::spawn(async move {
-            debug!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
+            info!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
             tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
             let mut tick_interval = tokio::time::interval(std::time::Duration::from_millis(200));
             let mut msg_buffer = Vec::with_capacity(32);
@@ -172,8 +175,82 @@ impl Node {
                                 } // MutexGuard dropped here
                                 send_msgs.append(&mut msg_buffer);
                             }
-                            OmniPaxosRequest::Client { .. } => {
-                                // Client requests are ignored/commented for now
+                            OmniPaxosRequest::Client { entry, response } => {
+                                debug!("[OMNIPAXOS] Client request: {:?}", entry);
+                                let mut result = "Operation failed".to_string();
+                                {
+                                    let mut omni = omnipaxos_clone.lock().unwrap();
+
+                                    // Handle the operation based on type
+                                    match entry.op {
+                                        OperationType::SET => {
+                                            info!("[OMNIPAXOS] Appending SET entry for key: {}", entry.key);
+                                            match omni.append(entry) {
+                                                Ok(_) => result = "Value set successfully".to_string(),
+                                                Err(e) => {
+                                                    error!("[OMNIPAXOS] Failed to set value: {:?}", e);
+                                                    result = format!("Failed to set value: {:?}", e)
+                                                },
+                                            }
+                                        },
+                                        OperationType::GET => {
+                                            info!("[OMNIPAXOS] Processing GET for key: {}", entry.key);
+                                            // Search through decided entries to find the key
+                                            let mut key_found = false;
+                                            if let Some(log_entries) = omni.read_decided_suffix(0) {
+                                                for log_entry in log_entries.iter().rev() {
+                                                    // Match on the LogEntry enum
+                                                    match log_entry {
+                                                        LogEntry::Decided(entry_data) => {
+                                                            if entry_data.key == entry.key && entry_data.op == OperationType::SET {
+                                                                // Found the most recent SET for this key
+                                                                key_found = true;
+                                                                let fragment = &entry_data.fragment;
+                                                                if let Ok(value) = String::from_utf8(fragment.data.clone()) {
+                                                                    result = value;
+                                                                    break;
+                                                                }
+                                                            } else if entry_data.key == entry.key && entry_data.op == OperationType::DELETE {
+                                                                // Key was deleted
+                                                                key_found = true;
+                                                                result = "Key not found (deleted)".to_string();
+                                                                break;
+                                                            }
+                                                        },
+                                                        // Ignore other types of entries
+                                                        _ => continue,
+                                                    }
+                                                }
+                                            }
+
+                                            if !key_found {
+                                                result = "Key not found".to_string();
+                                            }
+                                        },
+                                        OperationType::DELETE => {
+                                            info!("[OMNIPAXOS] Appending DELETE entry for key: {}", entry.key);
+                                            match omni.append(entry) {
+                                                Ok(_) => result = "Value deleted successfully".to_string(),
+                                                Err(e) => {
+                                                    error!("[OMNIPAXOS] Failed to delete value: {:?}", e);
+                                                    result = format!("Failed to delete value: {:?}", e)
+                                                },
+                                            }
+                                        },
+                                        _ => {
+                                            result = "Unsupported operation".to_string();
+                                        }
+                                    }
+
+                                    omni.take_outgoing_messages(&mut msg_buffer);
+                                } // MutexGuard dropped here
+
+                                // Send the result back to the HTTP handler
+                                if let Err(e) = response.send(result) {
+                                    error!("[OMNIPAXOS] Failed to send response: {:?}", e);
+                                }
+
+                                send_msgs.append(&mut msg_buffer);
                             }
                         }
                         for msg in send_msgs.drain(..) {
@@ -219,6 +296,7 @@ impl Node {
         );
         Node {
             running: true,
+            start_time: std::time::Instant::now(),
             http_address,
             http_max_payload,
             address,
@@ -245,7 +323,7 @@ impl Node {
                 let node = node_arc.read().await;
                 node.socket.clone()
             };
-            debug!(
+            info!(
                 "[TCP] Listening for incoming TCP connections on {}",
                 socket.local_addr().unwrap()
             );
@@ -301,10 +379,12 @@ impl Node {
                             .app_data(web::JsonConfig::default().limit(max_payload))
                             .route("/health", web::get().to(Node::http_healthcheck))
                             .route("/put", web::post().to(Node::http_put))
-
-                        // TODO: These are not implemented yet
-                        // .route("/get", web::post().to(Node::http_get))
-                        // .route("/delete", web::post().to(Node::http_delete))
+                            .route("/get", web::post().to(Node::http_get))
+                            .route("/delete", web::post().to(Node::http_delete))
+                            .route("/cluster", web::get().to(Node::http_cluster_state))
+                            .route("/bulk", web::post().to(Node::http_bulk_operation))
+                            .route("/status", web::get().to(Node::http_status))
+                            .route("/docs", web::get().to(Node::http_api_docs))
                     })
                     .bind((address.ip.as_str(), address.port))
                     {
@@ -325,6 +405,34 @@ impl Node {
                     .expect("[ERROR] Actix server crashed");
             })
         });
+    }
+
+    // Utility function to send a request to OmniPaxos and get the response
+    pub async fn send_omnipaxos_request(&self, entry: ECKeyValue) -> String {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        match self
+            .omnipaxos_sender
+            .send(OmniPaxosRequest::Client {
+                entry,
+                response: tx,
+            })
+            .await
+        {
+            Ok(_) => match rx.await {
+                Ok(response) => response,
+                Err(e) => {
+                    let error_msg = format!("Failed to receive response from OmniPaxos: {}", e);
+                    error!("[OMNIPAXOS] {}", error_msg);
+                    error_msg
+                }
+            },
+            Err(e) => {
+                let error_msg = format!("Failed to send request to OmniPaxos: {}", e);
+                error!("[OMNIPAXOS] {}", error_msg);
+                error_msg
+            }
+        }
     }
 
     pub async fn run(node_arc: Arc<RwLock<Node>>) {
