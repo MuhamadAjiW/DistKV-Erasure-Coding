@@ -280,7 +280,7 @@ bench_baseline() {
 run_bench_suite() {
     timestamp=$(date +%Y%m%d_%H%M%S)
     kill_all_screen_session
-    # add_netem_limits
+    add_netem_limits
     
     echo "Starting benchmark suite..."
 
@@ -323,7 +323,7 @@ run_bench_suite() {
 
     kill_all_screen_session
 
-    # remove_netem_limits
+    remove_netem_limits
     sleep 5
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
@@ -332,7 +332,7 @@ run_bench_suite() {
 }
 
 add_netem_limits() {
-    echo "Adding 100ms latency and 1mbit bandwidth to loopback for ports 2080-2090..."
+    echo "Adding 200ms latency, 0.5mbit bandwidth, and 1% packet loss to loopback for ports 2080-2090..."
     # Mark packets to 2080-2090
     for port in {2080..2090}; do
         sudo iptables -A OUTPUT -t mangle -p tcp --dport $port -j MARK --set-mark 10
@@ -340,8 +340,8 @@ add_netem_limits() {
     # Add tc rules for marked packets
     sudo tc qdisc add dev lo root handle 1: prio || true
     sudo tc filter add dev lo parent 1: protocol ip handle 10 fw flowid 1:1 || true
-    sudo tc qdisc add dev lo parent 1:1 handle 10: netem delay 100ms rate 1mbit || true
-    echo "Netem limits applied."
+    sudo tc qdisc add dev lo parent 1:1 handle 10: netem delay 200ms rate 0.5mbit loss 1% || true
+    echo "Netem limits applied. (200ms latency, 0.5mbit bandwidth, 1% loss)"
 }
 
 remove_netem_limits() {
