@@ -280,6 +280,7 @@ bench_baseline() {
 run_bench_suite() {
     timestamp=$(date +%Y%m%d_%H%M%S)
     stop_all
+    add_netem_limits
     
     echo "Starting benchmark suite..."
 
@@ -322,11 +323,34 @@ run_bench_suite() {
 
     stop_all
 
+    remove_netem_limits
     sleep 5
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
     echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
     echo "You can analyze the results using k6's HTML report generation or other tools."    
+}
+
+add_netem_limits() {
+    echo "Adding 100ms latency and 1mbit bandwidth to loopback for ports 2080-2090..."
+    # Mark packets to 2080-2090
+    for port in {2080..2090}; do
+        sudo iptables -A OUTPUT -t mangle -p tcp --dport $port -j MARK --set-mark 10
+    done
+    # Add tc rules for marked packets
+    sudo tc qdisc add dev lo root handle 1: prio || true
+    sudo tc filter add dev lo parent 1: protocol ip handle 10 fw flowid 1:1 || true
+    sudo tc qdisc add dev lo parent 1:1 handle 10: netem delay 100ms rate 1mbit || true
+    echo "Netem limits applied."
+}
+
+remove_netem_limits() {
+    echo "Removing netem/iptables rules for loopback ports 2080-2090..."
+    for port in {2080..2090}; do
+        sudo iptables -t mangle -D OUTPUT -p tcp --dport $port -j MARK --set-mark 10 2>/dev/null || true
+    done
+    sudo tc qdisc del dev lo root 2>/dev/null || true
+    echo "Netem limits removed."
 }
 
 if [ "$1" == "clean" ]; then
@@ -345,8 +369,12 @@ elif [ "$1" == "bench_baseline" ]; then
     bench_baseline
 elif [ "$1" == "run_bench_suite" ]; then
     run_bench_suite
+elif [ "$1" == "add_netem_limits" ]; then
+    add_netem_limits
+elif [ "$1" == "remove_netem_limits" ]; then
+    remove_netem_limits
 elif [ "$1" == "help" ] || [ -z "$1" ]; then
-    echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|help}"
+    echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|add_netem_limits|remove_netem_limits|help}"
     echo ""
     echo "Commands:"
     echo "  clean                                                                       :"
@@ -375,6 +403,12 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo ""
     echo "  run_bench_suite                                                             : "
     echo "          Runs the full benchmark suite, including replication and erasure coding benchmarks."
+    echo ""
+    echo "  add_netem_limits                                                           : "
+    echo "          Adds 100ms latency and 1mbit bandwidth to loopback for ports 2080-2090."
+    echo ""
+    echo "  remove_netem_limits                                                        : "
+    echo "          Removes the above netem/iptables rules."
     echo ""
     echo "  help                                                                        : "
     echo "          Displays this help message."
