@@ -279,8 +279,8 @@ bench_baseline() {
 
 run_bench_suite() {
     timestamp=$(date +%Y%m%d_%H%M%S)
-    stop_all
-    add_netem_limits
+    kill_all_screen_session
+    # add_netem_limits
     
     echo "Starting benchmark suite..."
 
@@ -300,7 +300,7 @@ run_bench_suite() {
     mv ./benchmark/results/cpu_*.log ./benchmark/results/replication/
     mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/replication/
 
-    stop_all
+    kill_all_screen_session
 
     sleep 5
     echo "Replication benchmark completed. Results are stored in ./benchmark/results/replication."
@@ -321,9 +321,9 @@ run_bench_suite() {
     mv ./benchmark/results/cpu_*.log ./benchmark/results/erasure/
     mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/erasure/
 
-    stop_all
+    kill_all_screen_session
 
-    remove_netem_limits
+    # remove_netem_limits
     sleep 5
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
