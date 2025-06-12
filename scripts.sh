@@ -3,7 +3,7 @@
 SCREEN_SESSION="paxos_rust"
 
 # Utility commands
-kill_all_screen_session() {
+stop_all() {
     echo "Attempting to kill all screen sessions related to '$SCREEN_SESSION'..."
     screen -ls | grep "$SCREEN_SESSION" | awk '{print $1}' | xargs -r -I{} screen -S {} -X quit
     echo "Screen session cleanup initiated."
@@ -224,16 +224,15 @@ run_all() {
     done
 
     echo "All services started. Connect to the screen session 'paxos_rust' to see output (screen -r paxos_rust)."
-
 }
 
 
 virtual_users=(
-    1 5 10 25 50 100 250 500
+    1 5 10 25 50 100
 )
 
 size=(
-    1 100 10000 100000
+    1 100 10000 1000000 10000000
 )
 
 bench_system() {
@@ -258,11 +257,53 @@ bench_system() {
         done
     done
 }
+
+bench_system_with_reset() {
+    echo "Running system benchmark..."
+    local base_url_env="$1"
+    local base_url_arg=""
+    if [ -n "$base_url_env" ]; then
+        base_url_arg="-e \"BASE_URL=$base_url_env\""
+    fi
+
+    shift # Remove the first argument (base_url_env), keep the rest
+    for vus_value in "${virtual_users[@]}"; do
+        for size_value in "${size[@]}"; do
+            # Reset the system before each benchmark
+            stop_all
+            sleep 5 # Wait for the system to cleanup
+            
+            run_all "$@"
+            sleep 15 # Wait for the system to stabilize after restart
+
+            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
+            # Start mpstat in the background
+            mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" &
+            MPSTAT_PID=$!
+            # Run k6
+            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
+            # Stop mpstat
+            kill $MPSTAT_PID
+            # Optional: Print average CPU usage
+            awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu.txt"
+        done
+    done
+
+    stop_all
+    sleep 5
+}
+
+
 bench_baseline() {
     echo "Running benchmark on etcd for baseline..."
 
     for vus_value in "${virtual_users[@]}"; do
         for size_value in "${size[@]}"; do
+            # We can't simply stop etcd and restart to expect the same leader, so we will run the baseline benchmark without resetting the system.
+            # We will just wait out a few seconds to ensure no queued requests are pending.
+            echo "Waiting for 15 seconds to ensure no pending requests..."
+            sleep 15 # Http timeouts are usually 15 seconds, so this should be enough to ensure no pending requests.
+
             echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}"
             # Start mpstat in the background
             mpstat 1 > "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu.log" &
@@ -279,18 +320,15 @@ bench_baseline() {
 
 run_bench_suite() {
     timestamp=$(date +%Y%m%d_%H%M%S)
-    kill_all_screen_session
+    stop_all
     add_netem_limits
     
     echo "Starting benchmark suite..."
 
     # Benchmark replication
     echo "Benchmarking replication..."
-    run_all
     
-    sleep 30
-
-    bench_system
+    bench_system_with_reset
 
     if [ -d ./benchmark/results/replication ]; then
         mv ./benchmark/results/replication ./benchmark/results/replication_$timestamp
@@ -300,18 +338,12 @@ run_bench_suite() {
     mv ./benchmark/results/cpu_*.log ./benchmark/results/replication/
     mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/replication/
 
-    kill_all_screen_session
-
-    sleep 5
     echo "Replication benchmark completed. Results are stored in ./benchmark/results/replication."
 
     # Benchmark erasure coding
     echo "Benchmarking erasure coding..."
-    run_all --erasure
 
-    sleep 30
-
-    bench_system
+    bench_system_with_reset --erasure
 
     if [ -d ./benchmark/results/erasure ]; then
         mv ./benchmark/results/erasure ./benchmark/results/erasure_$timestamp
@@ -321,10 +353,7 @@ run_bench_suite() {
     mv ./benchmark/results/cpu_*.log ./benchmark/results/erasure/
     mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/erasure/
 
-    kill_all_screen_session
-
     remove_netem_limits
-    sleep 5
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
     echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
@@ -362,7 +391,7 @@ elif [ "$1" == "run_all" ]; then
     shift
     run_all "$@"
 elif [ "$1" == "stop_all" ]; then
-    kill_all_screen_session
+    stop_all
 elif [ "$1" == "bench_system" ]; then
     bench_system "$2"
 elif [ "$1" == "bench_baseline" ]; then

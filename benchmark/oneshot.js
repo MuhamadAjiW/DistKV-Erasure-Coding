@@ -1,5 +1,5 @@
 const BASE_URL = "http://localhost:2084";
-const SIZE = 1024 * 1024; // 1 MB
+const SIZE = 1024 * 102400; // 100 MB
 
 async function main() {
   const key = Math.random().toString(36).substring(2, 12);
