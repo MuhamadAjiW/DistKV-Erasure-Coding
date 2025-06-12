@@ -270,7 +270,7 @@ bench_system_with_reset() {
             run_all "$@"
             sleep 15 # Wait for the system to stabilize after restart
 
-            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${$@}"
+            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: $@"
             # Start mpstat in the background
             mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" &
             MPSTAT_PID=$!
