@@ -347,7 +347,6 @@ run_bench_suite() {
     fi
     timestamp=$(date +%Y%m%d_%H%M%S)
     stop_all
-    add_netem_limits
     
     echo "Starting benchmark suite..."
 
@@ -379,7 +378,6 @@ run_bench_suite() {
     mv ./benchmark/results/cpu_*.log ./benchmark/results/erasure/
     mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/erasure/
 
-    remove_netem_limits
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
     echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
@@ -392,9 +390,9 @@ add_netem_limits() {
         echo "Usage: add_netem_limits <bandwidth> (e.g., 0.5mbit, 100kbit)"
         return 1
     fi
-    echo "Adding bandwidth limit $bandwidth_value to loopback for ports 2080-2090..."
-    # Mark packets to 2080-2090
-    for port in {2080..2090}; do
+    echo "Adding bandwidth limit $bandwidth_value to loopback for ports 2080-2290..."
+    # Mark packets to 2080-2290
+    for port in {2080..2290}; do
         sudo iptables -A OUTPUT -t mangle -p tcp --dport $port -j MARK --set-mark 10
     done
     # Add tc rules for marked packets
@@ -405,8 +403,8 @@ add_netem_limits() {
 }
 
 remove_netem_limits() {
-    echo "Removing netem/iptables rules for loopback ports 2080-2090..."
-    for port in {2080..2090}; do
+    echo "Removing netem/iptables rules for loopback ports 2080-2290..."
+    for port in {2080..2290}; do
         sudo iptables -t mangle -D OUTPUT -p tcp --dport $port -j MARK --set-mark 10 2>/dev/null || true
     done
     sudo tc qdisc del dev lo root 2>/dev/null || true
@@ -471,8 +469,8 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "  run_bench_suite                                                             : "
     echo "          Runs the full benchmark suite, including replication and erasure coding benchmarks."
     echo ""
-    echo "  add_netem_limits                                                           : "
-    echo "          Adds 100ms latency and 1mbit bandwidth to loopback for ports 2080-2090."
+    echo "  add_netem_limits <bandwidth>                                             : "
+    echo "          Adds a bandwidth limit to loopback for ports 2080-2290. Bandwidth must be specified (e.g., 200kbit, 400kbit, 1mbit)."
     echo ""
     echo "  remove_netem_limits                                                        : "
     echo "          Removes the above netem/iptables rules."
