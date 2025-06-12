@@ -228,17 +228,23 @@ run_all() {
 
 
 virtual_users=(
-    # 10 20 30 40 50
-    1
+    # 1 user for baseline, 10 to 50 for scalability
+    1 10 20 30 40 50
 )
 
 size=(
-    # 20000 40000 60000 80000 100000 
-    100000
+    # 1024kb for small kv use cases, 200kb to 1mb for scalability
+    1024 200000 400000 600000 800000 1000000 
 )
 
 bandwidth=(
-    200kbit 400kbit 600kbit 800kbit 1mbit
+    # Indonesian average internet bandwidth is 40mbit/s per june 2025
+    # https://www.speedtest.net/global-index#mobile
+
+    # 256kbit for low end mobile connections
+    # 10mbit - 60mbit for typical indonesian home connections and linear scalability
+    # 10gbit for typical data center connections
+    256kbit 10mbit 25mbit 40mbit 55mbit 60mbit 10gbit
 )
 
 bench_system() {
