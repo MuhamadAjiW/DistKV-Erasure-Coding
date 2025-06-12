@@ -43,7 +43,7 @@ struct ClusterStateResponse {
 
 #[derive(Deserialize, Serialize)]
 pub struct Operation {
-    pub op_type: String, // "GET", "SET", "DELETE"
+    pub op_type: OperationType,
     pub key: String,
     pub value: Option<String>,
 }
@@ -256,10 +256,10 @@ impl Node {
                 continue;
             }
 
-            let op_type = match op.op_type.to_uppercase().as_str() {
-                "GET" => OperationType::GET,
-                "SET" => OperationType::SET,
-                "DELETE" => OperationType::DELETE,
+            let op_type = match op.op_type {
+                OperationType::GET => OperationType::GET,
+                OperationType::SET => OperationType::SET,
+                OperationType::DELETE => OperationType::DELETE,
                 _ => {
                     results.push(BaseResponse {
                         key: op.key.clone(),
