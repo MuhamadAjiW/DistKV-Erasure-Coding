@@ -228,91 +228,123 @@ run_all() {
 
 
 virtual_users=(
-    1 5 10 25 50 100
+    # 10 20 30 40 50
+    1
 )
 
 size=(
-    1 100 10000 1000000 10000000
+    # 20000 40000 60000 80000 100000 
+    100000
+)
+
+bandwidth=(
+    200kbit 400kbit 600kbit 800kbit 1mbit
 )
 
 bench_system() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "This function must be run as root (sudo)."
+        exit 1
+    fi
+
     echo "Running system benchmark..."
     local base_url_env="$1"
     local base_url_arg=""
     if [ -n "$base_url_env" ]; then
         base_url_arg="-e \"BASE_URL=$base_url_env\""
     fi
-    for vus_value in "${virtual_users[@]}"; do
-        for size_value in "${size[@]}"; do
-            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
-            # Start mpstat in the background
-            mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" &
-            MPSTAT_PID=$!
-            # Run k6
-            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
-            # Stop mpstat
-            kill $MPSTAT_PID
-            # Optional: Print average CPU usage
-            awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu.txt"
+    for bandwidth_value in "${bandwidth[@]}"; do
+        for vus_value in "${virtual_users[@]}"; do
+            for size_value in "${size[@]}"; do
+                add_netem_limits "$bandwidth_value"
+                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: ${base_url_env}"
+                # Start mpstat in the background
+                mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
+                MPSTAT_PID=$!
+                # Run k6
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
+                # Stop mpstat
+                kill $MPSTAT_PID
+                # Optional: Print average CPU usage
+                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+                remove_netem_limits
+            done
         done
     done
 }
 
 bench_system_with_reset() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "This function must be run as root (sudo)."
+        exit 1
+    fi
     echo "Running system benchmark..."
 
-    for vus_value in "${virtual_users[@]}"; do
-        for size_value in "${size[@]}"; do
-            # Reset the system before each benchmark
-            stop_all
-            sleep 5 # Wait for the system to cleanup
-            
-            run_all "$@"
-            sleep 15 # Wait for the system to stabilize after restart
+    for bandwidth_value in "${bandwidth[@]}"; do
+        for vus_value in "${virtual_users[@]}"; do
+            for size_value in "${size[@]}"; do
+                # Reset the system before each benchmark
+                stop_all
+                run_all "$@"
+                sleep 10 # Wait for the system to stabilize after restart
 
-            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: $@"
-            # Start mpstat in the background
-            mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" &
-            MPSTAT_PID=$!
-            # Run k6
-            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
-            # Stop mpstat
-            kill $MPSTAT_PID
-            # Optional: Print average CPU usage
-            awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu.txt"
+                add_netem_limits "$bandwidth_value"
+                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: $@"
+                # Start mpstat in the background
+                mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
+                MPSTAT_PID=$!
+                # Run k6
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
+                # Stop mpstat
+                kill $MPSTAT_PID
+                # Optional: Print average CPU usage
+                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+                remove_netem_limits
+            done
         done
     done
 
     stop_all
-    sleep 5
 }
 
 
 bench_baseline() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "This function must be run as root (sudo)."
+        exit 1
+    fi
     echo "Running benchmark on etcd for baseline..."
 
-    for vus_value in "${virtual_users[@]}"; do
-        for size_value in "${size[@]}"; do
-            # We can't simply stop etcd and restart to expect the same leader, so we will run the baseline benchmark without resetting the system.
-            # We will just wait out a few seconds to ensure no queued requests are pending.
-            echo "Waiting for 15 seconds to ensure no pending requests..."
-            sleep 15 # Http timeouts are usually 15 seconds, so this should be enough to ensure no pending requests.
+    for bandwidth_value in "${bandwidth[@]}"; do
+        for vus_value in "${virtual_users[@]}"; do
+            for size_value in "${size[@]}"; do
+                add_netem_limits "$bandwidth_value"
+                # We can't simply stop etcd and restart to expect the same leader, so we will run the baseline benchmark without resetting the system.
+                # We will just wait out a few seconds to ensure no queued requests are pending.
+                echo "Waiting for 15 seconds to ensure no pending requests..."
+                sleep 15 # Http timeouts are usually 15 seconds, so this should be enough to ensure no pending requests.
 
-            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}"
-            # Start mpstat in the background
-            mpstat 1 > "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu.log" &
-            MPSTAT_PID=$!
-            # Run k6
-            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-etcd.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu.json"
-            # Stop mpstat
-            kill $MPSTAT_PID
-            # Optional: Print average CPU usage
-            awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu.log" > "./benchmark/results/cpu_avg_baseline_${size_value}b_${vus_value}vu.txt"
+                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value}"
+                # Start mpstat in the background
+                mpstat 1 > "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
+                MPSTAT_PID=$!
+                # Run k6
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-etcd.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
+                # Stop mpstat
+                kill $MPSTAT_PID
+                # Optional: Print average CPU usage
+                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "./benchmark/results/cpu_avg_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+                remove_netem_limits
+            done
         done
     done
 }
 
 run_bench_suite() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "This function must be run as root (sudo)."
+        exit 1
+    fi
     timestamp=$(date +%Y%m%d_%H%M%S)
     stop_all
     add_netem_limits
@@ -355,7 +387,12 @@ run_bench_suite() {
 }
 
 add_netem_limits() {
-    echo "Adding 200ms latency, 0.5mbit bandwidth, and 1% packet loss to loopback for ports 2080-2090..."
+    local bandwidth_value="$1"
+    if [ -z "$bandwidth_value" ]; then
+        echo "Usage: add_netem_limits <bandwidth> (e.g., 0.5mbit, 100kbit)"
+        return 1
+    fi
+    echo "Adding bandwidth limit $bandwidth_value to loopback for ports 2080-2090..."
     # Mark packets to 2080-2090
     for port in {2080..2090}; do
         sudo iptables -A OUTPUT -t mangle -p tcp --dport $port -j MARK --set-mark 10
@@ -363,8 +400,8 @@ add_netem_limits() {
     # Add tc rules for marked packets
     sudo tc qdisc add dev lo root handle 1: prio || true
     sudo tc filter add dev lo parent 1: protocol ip handle 10 fw flowid 1:1 || true
-    sudo tc qdisc add dev lo parent 1:1 handle 10: netem delay 200ms rate 0.5mbit loss 1% || true
-    echo "Netem limits applied. (200ms latency, 0.5mbit bandwidth, 1% loss)"
+    sudo tc qdisc add dev lo parent 1:1 handle 10: netem rate ${bandwidth_value} || true
+    echo "Netem limits applied. (bandwidth: $bandwidth_value)"
 }
 
 remove_netem_limits() {
