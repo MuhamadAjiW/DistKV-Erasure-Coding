@@ -260,13 +260,7 @@ bench_system() {
 
 bench_system_with_reset() {
     echo "Running system benchmark..."
-    local base_url_env="$1"
-    local base_url_arg=""
-    if [ -n "$base_url_env" ]; then
-        base_url_arg="-e \"BASE_URL=$base_url_env\""
-    fi
 
-    shift # Remove the first argument (base_url_env), keep the rest
     for vus_value in "${virtual_users[@]}"; do
         for size_value in "${size[@]}"; do
             # Reset the system before each benchmark
@@ -276,12 +270,12 @@ bench_system_with_reset() {
             run_all "$@"
             sleep 15 # Wait for the system to stabilize after restart
 
-            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${base_url_env}"
+            echo "Using k6 with VUS=${vus_value}, SIZE=${size_value} and extra args: ${$@}"
             # Start mpstat in the background
             mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu.log" &
             MPSTAT_PID=$!
             # Run k6
-            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
+            k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu.json"
             # Stop mpstat
             kill $MPSTAT_PID
             # Optional: Print average CPU usage
@@ -394,6 +388,8 @@ elif [ "$1" == "stop_all" ]; then
     stop_all
 elif [ "$1" == "bench_system" ]; then
     bench_system "$2"
+elif [ "$1" == "bench_system_with_reset" ]; then
+    bench_system_with_reset "$2"
 elif [ "$1" == "bench_baseline" ]; then
     bench_baseline
 elif [ "$1" == "run_bench_suite" ]; then
