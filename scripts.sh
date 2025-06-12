@@ -292,7 +292,7 @@ bench_system_with_reset() {
                 # Reset the system before each benchmark
                 stop_all
                 run_all "$@"
-                sleep 10 # Wait for the system to stabilize after restart
+                sleep 5 # Wait for the system to stabilize after restart
 
                 add_netem_limits "$bandwidth_value"
                 echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: $@"
