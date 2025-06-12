@@ -170,15 +170,6 @@ impl Node {
             });
         }
 
-        // Make sure value isn't too large
-        if body.value.len() > 1024 * 1024 {
-            // 1MB limit
-            return HttpResponse::BadRequest().json(BaseResponse {
-                key: body.key.clone(),
-                response: "Value is too large. Maximum size is 1MB".to_string(),
-            });
-        }
-
         let ec_entry = ECKeyValue {
             key: body.key.clone(),
             fragment: EntryFragment::for_request(body.value.clone().into_bytes()),
@@ -280,26 +271,6 @@ impl Node {
                     continue;
                 }
             };
-
-            // For SET operations, value is required
-            if op_type == OperationType::SET && op.value.is_none() {
-                results.push(BaseResponse {
-                    key: op.key.clone(),
-                    response: "Value is required for SET operations".to_string(),
-                });
-                continue;
-            }
-
-            // Check value size for SET operations
-            if op_type == OperationType::SET
-                && op.value.as_ref().map_or(false, |v| v.len() > 1024 * 1024)
-            {
-                results.push(BaseResponse {
-                    key: op.key.clone(),
-                    response: "Value is too large. Maximum size is 1MB".to_string(),
-                });
-                continue;
-            }
 
             let ec_entry = ECKeyValue {
                 key: op.key.clone(),
