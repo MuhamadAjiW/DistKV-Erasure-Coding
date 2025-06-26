@@ -57,6 +57,51 @@ DistKV-Erasure-Coding is designed to address the core challenges of distributed 
 
 ---
 
+## Node Request Flow (HTTP → TCP → Node → Omnipaxos)
+
+This section describes the high-level flow of a client request as it travels through the system, from HTTP entrypoint to the consensus engine and back. Internal details of Omnipaxos are intentionally omitted for clarity.
+
+```
+Client
+  |
+  v
+[HTTP Request]
+  |
+  v
+[Node HTTP Server]
+  |
+  v
+[Parse/Validate Request]
+  |
+  v
+[Node TCP Handler]
+  |
+  v
+[Omnipaxos API]
+  |
+  v
+[Node TCP Handler]
+  |
+  v
+[HTTP Response]
+  |
+  v
+Client
+```
+
+### Step-by-step Flow
+
+1. **Client sends HTTP request** (e.g., PUT/GET/DELETE) to the node's HTTP endpoint.
+2. **Node HTTP server** receives the request (e.g., via Hyper or Actix).
+3. **Request is parsed and validated** (method, path, body, etc.).
+4. **Node logic** determines the operation and prepares a command.
+5. **Node TCP handler** (async, Tokio) sends the command to the Omnipaxos consensus module (via an internal API or channel).
+6. **Omnipaxos** processes the command (consensus, replication, etc.) — details omitted.
+7. **Node TCP handler** receives the result from Omnipaxos.
+8. **Node HTTP server** formats and sends the HTTP response back to the client.
+
+---
+
 ## Performance & Reliability
 
 - **Metrics:** Tracks memory usage, network throughput, consensus rounds, and average latency.
