@@ -227,14 +227,22 @@ run_all() {
 }
 
 
+# Choose the benchmark parameters
+# These parameters can be adjusted based on the use case and system capabilities.
+# The values below are examples and can be modified as needed.
+# Best not to run all of them at once, as it will take a long time.
 virtual_users=(
     # 1 user for baseline, 10 to 50 for scalability
-    1 10 20 30 40 50
+    # 1 10 20 30 40 50
+
+    1
 )
 
 size=(
     # 1024kb for small kv use cases, 200kb to 1mb for scalability
-    1024 200000 400000 600000 800000 1000000 
+    # 1024 200000 400000 600000 800000 1000000
+
+    1024
 )
 
 bandwidth=(
@@ -242,9 +250,11 @@ bandwidth=(
     # https://www.speedtest.net/global-index#mobile
 
     # 256kbit for low end mobile connections
-    # 10mbit - 60mbit for typical indonesian home connections and linear scalability
+    # 10mbit - 70mbit for typical indonesian home connections and linear scalability
     # 10gbit for typical data center connections
-    256kbit 10mbit 25mbit 40mbit 55mbit 60mbit 10gbit
+    # 256kbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
+
+    10mbit 25mbit 40mbit 55mbit 70mbit
 )
 
 bench_system() {
