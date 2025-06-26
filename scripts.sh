@@ -76,11 +76,12 @@ validate_config() {
         exit 1
     fi
 
-    local unique_rocks_db
-    unique_rocks_db=$(jq -r '.nodes[] | .rocks_db.path' "$path" | sort | uniq | wc -l)
+    # Check for duplicate rocks_db paths (transaction_log and kvstore) in one pass
+    local unique_rocks_db_paths
+    unique_rocks_db_paths=$(jq -r '.nodes[] | "\(.rocks_db.transaction_log)\n\(.rocks_db.kvstore)"' "$path" | sort | uniq | wc -l)
 
-    if [[ "$unique_rocks_db" -ne "$node_count" ]]; then
-        echo "Error: Duplicate rocks_db paths found in the configuration."
+    if [[ "$unique_rocks_db_paths" -ne $((node_count * 2)) ]]; then
+        echo "Error: Duplicate rocks_db paths (transaction_log or kvstore) found in the configuration."
         exit 1
     fi
 

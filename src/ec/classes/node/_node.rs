@@ -22,6 +22,7 @@ use crate::ec::base_libs::{
 };
 use crate::ec::classes::_entry::ECKeyValue;
 use crate::store::_memory_store::KvMemory;
+use crate::store::_persistent_store::KvPersistent;
 use omnipaxos::util::{LogEntry, NodeId};
 use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
@@ -62,6 +63,7 @@ pub struct Node {
 
     // Key value storage
     pub memory_storage: Arc<KvMemory>,
+    pub persistent_storage: Arc<KvPersistent>,
 }
 
 impl Node {
@@ -104,11 +106,13 @@ impl Node {
                 cluster_config,
                 server_config,
             };
-            let storage_config =
-                PersistentStorageConfig::with_path(config.nodes[index].rocks_db.path.clone());
+            let storage_config = PersistentStorageConfig::with_path(
+                config.nodes[index].rocks_db.transaction_log.clone(),
+            );
             let omnipaxos: OmniPaxosECKV = omnipaxos_config
                 .build(PersistentStorage::new(storage_config))
                 .unwrap();
+            let persistent_path = config.nodes[index].rocks_db.kvstore.clone();
 
             Node::new(
                 address,
@@ -117,6 +121,7 @@ impl Node {
                 cluster_list,
                 index,
                 omnipaxos,
+                persistent_path,
             )
             .await
         } else {
@@ -131,6 +136,7 @@ impl Node {
         cluster_list: Vec<String>,
         cluster_index: usize,
         omnipaxos: OmniPaxosECKV,
+        persistent_path: String,
     ) -> Self {
         info!("[INIT] binding address: {}", address);
         let socket = loop {
@@ -152,6 +158,11 @@ impl Node {
         let memory_store = Arc::new(KvMemory::new().await);
         let memory_store_for_task = memory_store.clone();
         let memory_store_for_struct = memory_store.clone();
+
+        // Setting up persistent storage
+        let persistent_store = Arc::new(KvPersistent::new(&persistent_path));
+        let persistent_store_for_task = persistent_store.clone();
+        let persistent_store_for_struct = persistent_store.clone();
 
         // Spawn OmniPaxos main event loop (handles incoming network messages and ticks)
         let omnipaxos_clone = omnipaxos_arc.clone();
@@ -384,6 +395,7 @@ impl Node {
             omnipaxos_sender,
             omnipaxos: omnipaxos_arc,
             memory_storage: memory_store_for_struct,
+            persistent_storage: persistent_store_for_struct,
         }
     }
 

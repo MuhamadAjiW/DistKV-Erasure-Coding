@@ -93,8 +93,9 @@ impl Node {
                 cluster_config,
                 server_config,
             };
-            let storage_config =
-                PersistentStorageConfig::with_path(config.nodes[index].rocks_db.path.clone());
+            let storage_config = PersistentStorageConfig::with_path(
+                config.nodes[index].rocks_db.transaction_log.clone(),
+            );
             let omnipaxos: OmniPaxosKV = omnipaxos_config
                 .build(PersistentStorage::new(storage_config))
                 .unwrap();

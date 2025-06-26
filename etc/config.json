@@ -9,45 +9,45 @@
       "ip": "0.0.0.0",
       "port": 2180,
       "http_port": 2080,
-      "transaction_log": "./db/node-1/transaction.log",
       "rocks_db": {
-        "path": "./db/node-1/rocksdb"
+        "transaction_log": "./db/node-1/rocksdb_transaction_log",
+        "kvstore": "./db/node-1/rocksdb_kvstore"
       }
     },
     {
       "ip": "0.0.0.0",
       "port": 2181,
       "http_port": 2081,
-      "transaction_log": "./db/node-2/transaction.log",
       "rocks_db": {
-        "path": "./db/node-2/rocksdb"
+        "transaction_log": "./db/node-2/rocksdb_transaction_log",
+        "kvstore": "./db/node-2/rocksdb_kvstore"
       }
     },
     {
       "ip": "0.0.0.0",
       "port": 2182,
       "http_port": 2082,
-      "transaction_log": "./db/node-3/transaction.log",
       "rocks_db": {
-        "path": "./db/node-3/rocksdb"
+        "transaction_log": "./db/node-3/rocksdb_transaction_log",
+        "kvstore": "./db/node-3/rocksdb_kvstore"
       }
     },
     {
       "ip": "0.0.0.0",
       "port": 2183,
       "http_port": 2083,
-      "transaction_log": "./db/node-4/transaction.log",
       "rocks_db": {
-        "path": "./db/node-4/rocksdb"
+        "transaction_log": "./db/node-4/rocksdb_transaction_log",
+        "kvstore": "./db/node-4/rocksdb_kvstore"
       }
     },
     {
       "ip": "0.0.0.0",
       "port": 2184,
       "http_port": 2084,
-      "transaction_log": "./db/node-5/transaction.log",
       "rocks_db": {
-        "path": "./db/node-5/rocksdb"
+        "transaction_log": "./db/node-5/rocksdb_transaction_log",
+        "kvstore": "./db/node-5/rocksdb_kvstore"
       }
     }
   ]

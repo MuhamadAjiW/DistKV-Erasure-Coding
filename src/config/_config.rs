@@ -28,7 +28,8 @@ pub struct NodeConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RocksDbConfig {
-    pub path: String,
+    pub transaction_log: String,
+    pub kvstore: String,
 }
 
 impl Config {
