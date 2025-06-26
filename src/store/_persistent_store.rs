@@ -1,43 +1,40 @@
 use rocksdb::DB;
-use std::sync::Arc;
+use tracing::instrument;
 
-use crate::store::_key_index_map::{KeyIndexMap, KeyIndexMapResult};
-
-pub struct RocksDBKeyIndexMap {
-    db: Arc<DB>,
+pub struct KvPersistent {
+    rocks_db: DB,
 }
 
-impl RocksDBKeyIndexMap {
-    pub fn open(path: &str) -> KeyIndexMapResult<Self> {
-        let db = DB::open_default(path)?;
-        Ok(Self { db: Arc::new(db) })
+impl KvPersistent {
+    pub fn new(db_path: &str) -> Self {
+        return KvPersistent {
+            rocks_db: DB::open_default(db_path).expect("Failed to open RocksDB"),
+        };
     }
-}
 
-impl KeyIndexMap for RocksDBKeyIndexMap {
-    fn put(&self, key: &str, log_idx: u64) -> KeyIndexMapResult<()> {
-        self.db.put(key.as_bytes(), &log_idx.to_be_bytes())?;
-        Ok(())
+    #[inline(always)]
+    #[instrument(level = "debug", skip_all)]
+    pub fn set(&self, key: &str, value: &[u8]) {
+        self.rocks_db
+            .put(key, value)
+            .expect("Failed to set RocksDB");
     }
-    fn get(&self, key: &str) -> KeyIndexMapResult<Option<u64>> {
-        if let Some(bytes) = self.db.get(key.as_bytes())? {
-            if bytes.len() == 8 {
-                let mut arr = [0u8; 8];
-                arr.copy_from_slice(&bytes);
-                Ok(Some(u64::from_be_bytes(arr)))
-            } else {
-                Ok(None)
-            }
+
+    #[inline(always)]
+    #[instrument(level = "debug", skip_all)]
+    pub fn get(&self, key: &str) -> Option<Vec<u8>> {
+        if let Ok(Some(value)) = self.rocks_db.get(key) {
+            return Some(value);
         } else {
-            Ok(None)
+            return None;
         }
     }
-    fn remove(&self, key: &str) -> KeyIndexMapResult<()> {
-        self.db.delete(key.as_bytes())?;
-        Ok(())
-    }
-    fn clear(&self) -> KeyIndexMapResult<()> {
-        self.db.flush()?;
-        Ok(())
+
+    #[inline(always)]
+    #[instrument(level = "debug", skip_all)]
+    pub fn remove(&self, key: &str) {
+        self.rocks_db
+            .delete(key)
+            .expect("Failed to delete from RocksDB");
     }
 }

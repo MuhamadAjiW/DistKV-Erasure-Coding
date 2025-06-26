@@ -176,7 +176,7 @@ impl Node {
         let ec_entry = ECKeyValue {
             key: body.key.clone(),
             fragment: EntryFragment::default(),
-            op: OperationType::GET,
+            op: OperationType::RECONSTRUCT,
         };
 
         let node = node_data.read().await;
@@ -293,6 +293,7 @@ impl Node {
 
             let op_type = match op.op_type {
                 OperationType::GET => OperationType::GET,
+                OperationType::RECONSTRUCT => OperationType::RECONSTRUCT,
                 OperationType::SET => OperationType::SET,
                 OperationType::DELETE => OperationType::DELETE,
                 _ => {

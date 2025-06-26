@@ -21,6 +21,7 @@ use crate::ec::base_libs::{
     network::_messages::receive_omnipaxos_message,
 };
 use crate::ec::classes::_entry::ECKeyValue;
+use crate::store::_memory_store::KvMemory;
 use omnipaxos::util::{LogEntry, NodeId};
 use omnipaxos::{
     erasure::ec_service::ECService, ClusterConfigEC, OmniPaxosECConfig, ServerConfigEC,
@@ -58,6 +59,9 @@ pub struct Node {
     // Omnipaxos
     pub omnipaxos_sender: mpsc::Sender<OmniPaxosRequest>,
     pub omnipaxos: Arc<Mutex<OmniPaxosECKV>>,
+
+    // Key value storage
+    pub memory_storage: Arc<KvMemory>,
 }
 
 impl Node {
@@ -144,6 +148,11 @@ impl Node {
         let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(BUFFER_SIZE);
         let omnipaxos_arc = Arc::new(tokio::sync::Mutex::new(omnipaxos));
 
+        // Setting up memory storage for key index map
+        let memory_store = Arc::new(KvMemory::new().await);
+        let memory_store_for_task = memory_store.clone();
+        let memory_store_for_struct = memory_store.clone();
+
         // Spawn OmniPaxos main event loop (handles incoming network messages and ticks)
         let omnipaxos_clone = omnipaxos_arc.clone();
         let peer_addresses = {
@@ -165,6 +174,7 @@ impl Node {
             info!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
             sleep(Duration::from_millis(jitter_ms)).await;
             let mut tick_interval = interval(TICK_PERIOD);
+
             loop {
                 tokio::select! {
                     biased;
@@ -189,18 +199,74 @@ impl Node {
                                     match entry.op {
                                         OperationType::SET => {
                                             info!("[OMNIPAXOS] Appending SET entry for key: {}", entry.key);
+                                            // Clone key and fragment data before moving entry
+                                            let key_clone = entry.key.clone();
+                                            let fragment_data_clone = entry.fragment.data.clone();
                                             match omni.append(entry) {
-                                                Ok(_) => result = "Value set successfully".to_string(),
+                                                Ok(_) => {
+                                                    result = "Value set successfully".to_string();
+                                                    memory_store_for_task.set(&key_clone, &fragment_data_clone).await;
+                                                },
                                                 Err(e) => {
                                                     error!("[OMNIPAXOS] Failed to set value: {:?}", e);
                                                     result = format!("Failed to set value: {:?}", e)
                                                 },
                                             }
                                         },
+
                                         OperationType::GET => {
                                             info!("[OMNIPAXOS] Processing GET for key: {}", entry.key);
 
-                                            // _TODO: Create memory cache and retrieval from paxos nodes
+                                            // Check from memory store first
+                                            if let Some(value) = memory_store.get(&entry.key).await {
+                                                if let Ok(value_str) = String::from_utf8(value) {
+                                                    result = value_str;
+                                                } else {
+                                                    result = "Failed to decode value".to_string();
+                                                }
+                                            } else {
+                                                // TODO: Reconstruction logic for erasure coding
+
+                                                // Search through decided entries to find the key
+                                                let mut key_found = false;
+                                                if let Some(log_entries) = omni.read_decided_suffix(0) {
+                                                    for log_entry in log_entries.iter().rev() {
+
+                                                        // Match on the LogEntry enum
+                                                        match log_entry {
+                                                            LogEntry::Decided(entry_data) => {
+                                                                if entry_data.key == entry.key && entry_data.op == OperationType::SET {
+                                                                    // Found the most recent SET for this key
+                                                                    key_found = true;
+                                                                    let fragment = &entry_data.fragment;
+                                                                    if let Ok(value) = String::from_utf8(fragment.data.clone()) {
+                                                                        result = value;
+
+                                                                        // TODO: We need to reconstruct the value from fragments for erasure coding
+
+                                                                        break;
+                                                                    }
+                                                                } else if entry_data.key == entry.key && entry_data.op == OperationType::DELETE {
+                                                                    // Key was deleted
+                                                                    key_found = true;
+                                                                    result = "Key not found (deleted)".to_string();
+                                                                    break;
+                                                                }
+                                                            },
+                                                            // Ignore other types of entries
+                                                            _ => continue,
+                                                        }
+                                                    }
+                                                }
+
+                                                if !key_found {
+                                                    result = "Key not found".to_string();
+                                                }
+                                            }
+                                        },
+                                        OperationType::RECONSTRUCT => {
+                                            info!("[OMNIPAXOS] Processing RECONSTRUCT for key: {}", entry.key);
+
                                             // Search through decided entries to find the key
                                             let mut key_found = false;
                                             if let Some(log_entries) = omni.read_decided_suffix(0) {
@@ -236,8 +302,12 @@ impl Node {
                                         },
                                         OperationType::DELETE => {
                                             info!("[OMNIPAXOS] Appending DELETE entry for key: {}", entry.key);
+                                            let key = entry.key.clone();
                                             match omni.append(entry) {
-                                                Ok(_) => result = "Value deleted successfully".to_string(),
+                                                Ok(_) => {
+                                                    result = "Value deleted successfully".to_string();
+                                                    memory_store.remove(&key).await;
+                                                },
                                                 Err(e) => {
                                                     error!("[OMNIPAXOS] Failed to delete value: {:?}", e);
                                                     result = format!("Failed to delete value: {:?}", e)
@@ -313,6 +383,7 @@ impl Node {
             cluster_index,
             omnipaxos_sender,
             omnipaxos: omnipaxos_arc,
+            memory_storage: memory_store_for_struct,
         }
     }
 
