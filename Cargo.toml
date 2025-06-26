@@ -29,3 +29,4 @@ omnipaxos_storage = { path = "./omnipaxos/omnipaxos_storage", features = [
   "persistent_storage",
 ] }
 rand = "0.9.1"
+rocksdb = { version = "0.21.0" }

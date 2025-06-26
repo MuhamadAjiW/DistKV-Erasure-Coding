@@ -707,6 +707,7 @@ dependencies = [
  "predicates 0.3.0",
  "rand",
  "reqwest",
+ "rocksdb",
  "serde",
  "serde_derive",
  "serde_json",
