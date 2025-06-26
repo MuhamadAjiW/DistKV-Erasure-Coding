@@ -243,14 +243,96 @@ impl Node {
                                             info!("[OMNIPAXOS] Processing GET for key: {}", entry.key);
 
                                             // Check from memory store first
+                                            // 1. Check from memory store first (fast path)
                                             if let Some(value) = memory_store.get(&entry.key).await {
                                                 if let Ok(value_str) = String::from_utf8(value) {
                                                     result = value_str;
                                                 } else {
                                                     result = "Failed to decode value".to_string();
                                                 }
-                                            } else {
-                                                // Search through decided entries to find the key
+                                            } 
+                                            // 2. Check persistent storage (requires EC reconstruction)
+                                            else if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
+                                                let mut fragments = vec![EntryFragment {
+                                                    data: persisted_fragment.clone(),
+                                                    ..Default::default()
+                                                }];
+                                                let ec_service = omni.ec_service();
+                                                let k = ec_service.data_shards;
+
+                                                // Collect additional fragments from peers if needed
+                                                let mut handles = Vec::new();
+                                                let key = entry.key.clone();
+                                                info!("[EC-RECONSTRUCT] Collecting additional fragments for key {} from {} peers (TCP)", key, peer_addresses.len());
+                                                for (_peer_id, peer_addr) in peer_addresses.iter() {
+                                                    let key = key.clone();
+                                                    let peer_addr = peer_addr.clone();
+                                                    handles.push(tokio::spawn(async move {
+                                                        let msg = ReconstructMessage::Request { key };
+                                                        let bytes = serialize_reconstruct_message(&msg);
+                                                        match TcpStream::connect(&peer_addr).await {
+                                                            Ok(mut stream) => {
+                                                                let _ = stream.write_all(&(bytes.len() as u32).to_be_bytes()).await;
+                                                                let _ = stream.write_all(&bytes).await;
+                                                                let mut len_buf = [0u8; 4];
+                                                                if stream.read_exact(&mut len_buf).await.is_err() {
+                                                                    return None;
+                                                                }
+                                                                let len = u32::from_be_bytes(len_buf) as usize;
+                                                                if len == 0 { return None; }
+                                                                let mut buffer = vec![0; len];
+                                                                if stream.read_exact(&mut buffer).await.is_err() {
+                                                                    return None;
+                                                                }
+                                                                match bincode::deserialize::<EntryFragment>(&buffer) {
+                                                                    Ok(fragment) => Some(fragment),
+                                                                    Err(_) => None,
+                                                                }
+                                                            }
+                                                            Err(_) => None,
+                                                        }
+                                                    }));
+                                                }
+                                                // Wait for all responses, but with a timeout
+                                                let timeout = tokio::time::Duration::from_millis(1000);
+                                                let mut timed_out = false;
+                                                for handle in handles {
+                                                    match tokio::time::timeout(timeout, handle).await {
+                                                        Ok(Ok(Some(fragment))) => {
+                                                            // Avoid duplicate fragments
+                                                            if !fragments.iter().any(|f| f.data == fragment.data) {
+                                                                fragments.push(fragment);
+                                                            }
+                                                            if fragments.len() >= k {
+                                                                break;
+                                                            }
+                                                        }
+                                                        Ok(_) => {}, // Task finished but no fragment
+                                                        Err(_) => { timed_out = true; }, // Timeout
+                                                    }
+                                                }
+                                                if fragments.len() >= k {
+                                                    // Attempt to reconstruct value
+                                                    match ec_service.decode(&fragments) {
+                                                        Ok(data) => {
+                                                            if let Ok(value_str) = String::from_utf8(data) {
+                                                                result = value_str;
+                                                            } else {
+                                                                result = "Failed to decode value".to_string();
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            result = format!("Failed to reconstruct value: {:?}", e);
+                                                        }
+                                                    }
+                                                } else if timed_out {
+                                                    result = "Timeout while collecting fragments from peers".to_string();
+                                                } else {
+                                                    result = "Not enough fragments to reconstruct value".to_string();
+                                                }
+                                            }
+                                            // 3. Fallback: Search through decided log entries for the key
+                                            else {
                                                 let mut key_found = false;
                                                 if let Some(log_entries) = omni.read_decided_suffix(0) {
                                                     for log_entry in log_entries.iter().rev() {
