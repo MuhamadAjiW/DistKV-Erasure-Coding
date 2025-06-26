@@ -1,12 +1,12 @@
 import http from "k6/http";
-import { check } from "k6";
+import { check, sleep } from "k6";
 import { b64encode, b64decode } from "k6/encoding";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:2084";
 const VUS = __ENV.VUS || 1;
 const SIZE = __ENV.SIZE || 10240;
-const DURATION = __ENV.DURATION || "10s";
-const SEED_COUNT = __ENV.SEED_COUNT || 1000;
+const DURATION = __ENV.DURATION || "300s";
+const SEED_COUNT = __ENV.SEED_COUNT || 50;
 
 export const options = {
   vus: VUS,
@@ -28,6 +28,8 @@ export function setup() {
     );
     check(res, { "Seed PUT succeeded": (r) => r.status === 200 });
     seeded.push({ key, value });
+
+    sleep(0.25); // Sleep to avoid overwhelming the server with requests
   }
   return seeded;
 }
