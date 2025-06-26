@@ -1,4 +1,6 @@
+use base64::Engine;
 use core::panic;
+use omnipaxos::erasure::ec_service::EntryFragment;
 use omnipaxos::erasure::log_entry::OperationType;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -58,7 +60,7 @@ pub struct Node {
     pub cluster_index: usize,
 
     // Omnipaxos
-    pub omnipaxos_sender: mpsc::Sender<OmniPaxosRequest>,
+    pub omnipaxos_sender: Arc<mpsc::Sender<OmniPaxosRequest>>,
     pub omnipaxos: Arc<Mutex<OmniPaxosECKV>>,
 
     // Key value storage
@@ -153,6 +155,9 @@ impl Node {
         };
         let (omnipaxos_sender, mut omnipaxos_receiver) = mpsc::channel(BUFFER_SIZE);
         let omnipaxos_arc = Arc::new(tokio::sync::Mutex::new(omnipaxos));
+        let omnipaxos_sender_arc = Arc::new(omnipaxos_sender);
+        let omnipaxos_sender_for_task = omnipaxos_sender_arc.clone();
+        let omnipaxos_sender_for_struct = omnipaxos_sender_arc.clone();
 
         // Setting up memory storage for key index map
         let memory_store = Arc::new(KvMemory::new().await);
@@ -249,8 +254,6 @@ impl Node {
                                                     result = "Failed to decode value".to_string();
                                                 }
                                             } else {
-                                                // TODO: Reconstruction logic for erasure coding
-
                                                 // Search through decided entries to find the key
                                                 let mut key_found = false;
                                                 if let Some(log_entries) = omni.read_decided_suffix(0) {
@@ -263,13 +266,66 @@ impl Node {
                                                                     // Found the most recent SET for this key
                                                                     key_found = true;
                                                                     let fragment = &entry_data.fragment;
-                                                                    if let Ok(value) = String::from_utf8(fragment.data.clone()) {
-                                                                        result = value;
+                                                                    // Always reconstruct from fragments, do not try to decode a single fragment
+                                                                    let ec_service = omni.ec_service();
+                                                                    let k = ec_service.data_shards;
+                                                                    let n = ec_service.data_shards + ec_service.parity_shards;
 
-                                                                        // TODO: We need to reconstruct the value from fragments for erasure coding
-
-                                                                        break;
+                                                                    // Start with our own fragment (EntryFragment)
+                                                                    let mut fragments: Vec<EntryFragment> = vec![fragment.clone()];
+                                                                    let (tx, mut rx) = tokio::sync::mpsc::channel(n as usize);
+                                                                    for _ in 1..=n {
+                                                                        let tx = tx.clone();
+                                                                        let key = entry.key.clone();
+                                                                        let omnipaxos_sender = omnipaxos_sender_for_task.clone();
+                                                                        tokio::spawn(async move {
+                                                                            let (resp_tx, resp_rx) = oneshot::channel();
+                                                                            let req_entry = ECKeyValue {
+                                                                                key: key.clone(),
+                                                                                op: OperationType::RECONSTRUCT,
+                                                                                fragment: Default::default(),
+                                                                            };
+                                                                            let _ = omnipaxos_sender.send(OmniPaxosRequest::Client {
+                                                                                entry: req_entry,
+                                                                                response: resp_tx,
+                                                                            }).await;
+                                                                            if let Ok(fragment_str) = tokio::time::timeout(Duration::from_millis(300), resp_rx).await {
+                                                                                if let Ok(fragment_str) = fragment_str {
+                                                                                    if let Ok(fragment_bytes) = base64::engine::general_purpose::STANDARD.decode(&fragment_str) {
+                                                                                        if let Ok(entry_fragment) = bincode::deserialize::<EntryFragment>(&fragment_bytes) {
+                                                                                            let _ = tx.send(entry_fragment).await;
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        });
                                                                     }
+                                                                    drop(tx);
+                                                                    // Wait for responses
+                                                                    while let Some(frag) = rx.recv().await {
+                                                                        // Only add if not duplicate idx
+                                                                        if !fragments.iter().any(|f| f.idx == frag.idx) {
+                                                                            fragments.push(frag);
+                                                                        }
+                                                                        if fragments.len() >= k as usize {
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    // Try to reconstruct
+                                                                    if fragments.len() >= k as usize {
+                                                                        match ec_service.decode(&fragments) {
+                                                                            Ok(reconstructed) => {
+                                                                                match String::from_utf8(reconstructed) {
+                                                                                    Ok(val) => result = val,
+                                                                                    Err(_) => result = "Failed to decode reconstructed value".to_string(),
+                                                                                }
+                                                                            },
+                                                                            Err(_) => result = "Failed to reconstruct value from fragments".to_string(),
+                                                                        }
+                                                                    } else {
+                                                                        result = "Not enough fragments to reconstruct value".to_string();
+                                                                    }
+                                                                    break;
                                                                 } else if entry_data.key == entry.key && entry_data.op == OperationType::DELETE {
                                                                     // Key was deleted
                                                                     key_found = true;
@@ -405,7 +461,7 @@ impl Node {
             socket,
             cluster_list: Arc::new(RwLock::new(cluster_list)),
             cluster_index,
-            omnipaxos_sender,
+            omnipaxos_sender: omnipaxos_sender_for_struct,
             omnipaxos: omnipaxos_arc,
             memory_storage: memory_store_for_struct,
             persistent_storage: persistent_store_for_struct,

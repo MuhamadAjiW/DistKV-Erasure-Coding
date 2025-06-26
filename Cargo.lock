@@ -752,6 +752,7 @@ dependencies = [
  "actix-web",
  "assert_cmd",
  "awc",
+ "base64 0.22.1",
  "bincode",
  "clap",
  "moka",
