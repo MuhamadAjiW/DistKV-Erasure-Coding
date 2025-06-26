@@ -1,4 +1,3 @@
-use base64::Engine;
 use core::panic;
 use omnipaxos::erasure::ec_service::EntryFragment;
 use omnipaxos::erasure::log_entry::OperationType;
@@ -6,7 +5,7 @@ use rand::Rng;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio::time::{self, Duration};
+use tokio::time::Duration;
 
 use actix_web::{web, App, HttpServer};
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
@@ -218,7 +217,7 @@ impl Node {
                                             match omni.append(entry) {
                                                 Ok(_) => {
                                                     result = "Value set successfully".to_string();
-                                                    // memory_store_for_task.set(&key_clone, &fragment_data_clone).await;
+                                                    memory_store_for_task.set(&key_clone, &fragment_data_clone).await;
                                                     // Persist the decided erasure-coded entry to persistent storage
                                                     // Find the most recent decided SET entry for this key
                                                     if let Some(log_entries) = omni.read_decided_suffix(0) {
@@ -262,7 +261,6 @@ impl Node {
                                                                     key_found = true;
                                                                     let ec_service = omni.ec_service();
                                                                     let k = ec_service.data_shards;
-                                                                    let n = ec_service.data_shards + ec_service.parity_shards;
 
                                                                     // Use peer_addresses for distributed fragment collection via TCP
                                                                     let mut fragments: Vec<EntryFragment> = Vec::new();
@@ -275,55 +273,60 @@ impl Node {
                                                                         handles.push(tokio::spawn(async move {
                                                                             let msg = ReconstructMessage::Request { key };
                                                                             let bytes = serialize_reconstruct_message(&msg);
-                                                                            let fut = async {
-                                                                                if let Ok(mut stream) = TcpStream::connect(&peer_addr).await {
-                                                                                    // Send length prefix
-                                                                                    let len = (bytes.len() as u32).to_be_bytes();
-                                                                                    if stream.write_all(&len).await.is_ok() && stream.write_all(&bytes).await.is_ok() {
-                                                                                        // Wait for response
-                                                                                        let mut len_buf = [0u8; 4];
-                                                                                        if stream.read_exact(&mut len_buf).await.is_ok() {
-                                                                                            let resp_len = u32::from_be_bytes(len_buf) as usize;
-                                                                                            let mut resp_buf = vec![0u8; resp_len];
-                                                                                            if stream.read_exact(&mut resp_buf).await.is_ok() {
-                                                                                                if let Some(ReconstructMessage::Response { fragment: Some(frag) }) = deserialize_reconstruct_message(&resp_buf) {
-                                                                                                    return Some(frag);
-                                                                                                }
-                                                                                            }
-                                                                                        }
+                                                                            match TcpStream::connect(&peer_addr).await {
+                                                                                Ok(mut stream) => {
+                                                                                    let _ = stream.write_all(&(bytes.len() as u32).to_be_bytes()).await;
+                                                                                    let _ = stream.write_all(&bytes).await;
+                                                                                    let mut len_buf = [0u8; 4];
+                                                                                    if stream.read_exact(&mut len_buf).await.is_err() {
+                                                                                        return None;
+                                                                                    }
+                                                                                    let len = u32::from_be_bytes(len_buf) as usize;
+                                                                                    if len == 0 { return None; }
+                                                                                    let mut buffer = vec![0; len];
+                                                                                    if stream.read_exact(&mut buffer).await.is_err() {
+                                                                                        return None;
+                                                                                    }
+                                                                                    match bincode::deserialize::<EntryFragment>(&buffer) {
+                                                                                        Ok(fragment) => Some(fragment),
+                                                                                        Err(_) => None,
                                                                                     }
                                                                                 }
-                                                                                None
-                                                                            };
-                                                                            match time::timeout(Duration::from_secs(2), fut).await {
-                                                                                Ok(Some(frag)) => Some(frag),
-                                                                                _ => None,
+                                                                                Err(_) => None,
                                                                             }
                                                                         }));
                                                                     }
-                                                                    // Wait for all responses
-                                                                    for h in handles {
-                                                                        if let Ok(Some(frag)) = h.await {
-                                                                            if !fragments.iter().any(|f| f.idx == frag.idx) {
-                                                                                info!("[EC-RECONSTRUCT] Collected fragment idx {}", frag.idx);
-                                                                                fragments.push(frag);
+                                                                    // Wait for all responses, but with a timeout
+                                                                    let timeout = tokio::time::Duration::from_millis(1000);
+                                                                    let mut timed_out = false;
+                                                                    for handle in handles {
+                                                                        match tokio::time::timeout(timeout, handle).await {
+                                                                            Ok(Ok(Some(fragment))) => {
+                                                                                fragments.push(fragment);
+                                                                                if fragments.len() >= k {
+                                                                                    break;
+                                                                                }
                                                                             }
-                                                                            if fragments.len() >= k as usize {
-                                                                                break;
-                                                                            }
+                                                                            Ok(_) => {}, // Task finished but no fragment
+                                                                            Err(_) => { timed_out = true; }, // Timeout
                                                                         }
                                                                     }
-                                                                    info!("[EC-RECONSTRUCT] Total fragments collected: {}", fragments.len());
-                                                                    if fragments.len() >= k as usize {
+                                                                    if fragments.len() >= k {
+                                                                        // Attempt to reconstruct value
                                                                         match ec_service.decode(&fragments) {
-                                                                            Ok(reconstructed) => {
-                                                                                match String::from_utf8(reconstructed) {
-                                                                                    Ok(val) => result = val,
-                                                                                    Err(_) => result = "Failed to decode reconstructed value".to_string(),
+                                                                            Ok(data) => {
+                                                                                if let Ok(value_str) = String::from_utf8(data) {
+                                                                                    result = value_str;
+                                                                                } else {
+                                                                                    result = "Failed to decode value".to_string();
                                                                                 }
-                                                                            },
-                                                                            Err(_) => result = "Failed to reconstruct value from fragments".to_string(),
+                                                                            }
+                                                                            Err(e) => {
+                                                                                result = format!("Failed to reconstruct value: {:?}", e);
+                                                                            }
                                                                         }
+                                                                    } else if timed_out {
+                                                                        result = "Timeout while collecting fragments from peers".to_string();
                                                                     } else {
                                                                         result = "Not enough fragments to reconstruct value".to_string();
                                                                     }
@@ -348,8 +351,9 @@ impl Node {
                                         },
                                         OperationType::RECONSTRUCT => {
                                             info!("[OMNIPAXOS] Processing RECONSTRUCT for key: {}", entry.key);
+
                                             // Search through decided entries to find the key
-                                            let key_found = false;
+                                            let mut key_found = false;
                                             if let Some(log_entries) = omni.read_decided_suffix(0) {
                                                 for log_entry in log_entries.iter().rev() {
 
@@ -358,29 +362,17 @@ impl Node {
                                                         LogEntry::Decided(entry_data) => {
                                                             if entry_data.key == entry.key && entry_data.op == OperationType::SET {
                                                                 // Found the most recent SET for this key
+                                                                key_found = true;
                                                                 let fragment = &entry_data.fragment;
-                                                                info!("[OMNIPAXOS] RECONSTRUCT: Found fragment idx {} for key {}", fragment.idx, entry.key);
-                                                                // Serialize EntryFragment and send as base64 string
-                                                                match bincode::serialize(fragment) {
-                                                                    Ok(bytes) => {
-                                                                        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                                                                        info!("[OMNIPAXOS] RECONSTRUCT: Sending fragment idx {} ({} bytes, base64 len {})", fragment.idx, bytes.len(), encoded.len());
-                                                                        if let Err(e) = response.send(encoded) {
-                                                                            error!("[OMNIPAXOS] Failed to send RECONSTRUCT fragment: {:?}", e);
-                                                                        }
-                                                                    },
-                                                                    Err(e) => {
-                                                                        error!("[OMNIPAXOS] Failed to serialize EntryFragment: {:?}", e);
-                                                                        let _ = response.send(String::new());
-                                                                    }
+                                                                if let Ok(value) = String::from_utf8(fragment.data.clone()) {
+                                                                    result = value;
+                                                                    break;
                                                                 }
-                                                                // After sending, return to avoid using response again
-                                                                return;
                                                             } else if entry_data.key == entry.key && entry_data.op == OperationType::DELETE {
-                                                                info!("[OMNIPAXOS] RECONSTRUCT: Key {} was deleted", entry.key);
-                                                                let _ = response.send(String::new());
-                                                                // After sending, return to avoid using response again
-                                                                return;
+                                                                // Key was deleted
+                                                                key_found = true;
+                                                                result = "Key not found (deleted)".to_string();
+                                                                break;
                                                             }
                                                         },
                                                         // Ignore other types of entries
@@ -390,11 +382,8 @@ impl Node {
                                             }
 
                                             if !key_found {
-                                                info!("[OMNIPAXOS] RECONSTRUCT: Key {} not found", entry.key);
-                                                let _ = response.send(String::new());
+                                                result = "Key not found".to_string();
                                             }
-                                            // After sending response in RECONSTRUCT, return to avoid double use
-                                            return;
                                         },
                                         OperationType::DELETE => {
                                             info!("[OMNIPAXOS] Appending DELETE entry for key: {}", entry.key);
@@ -556,11 +545,16 @@ impl Node {
                                     }
                                 }
                             }
-                            let resp = ReconstructMessage::Response { fragment: found };
-                            let resp_bytes = serialize_reconstruct_message(&resp);
-                            let resp_len = (resp_bytes.len() as u32).to_be_bytes();
-                            let _ = stream.write_all(&resp_len).await;
-                            let _ = stream.write_all(&resp_bytes).await;
+                            // Send raw fragment bytes directly (no base64, just bincode)
+                            if let Some(fragment) = found {
+                                let fragment_bytes = bincode::serialize(&fragment).unwrap();
+                                let fragment_len = (fragment_bytes.len() as u32).to_be_bytes();
+                                let _ = stream.write_all(&fragment_len).await;
+                                let _ = stream.write_all(&fragment_bytes).await;
+                            } else {
+                                // Send zero-length to indicate not found
+                                let _ = stream.write_all(&0u32.to_be_bytes()).await;
+                            }
                         }
                         _ => {}
                     }
