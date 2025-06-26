@@ -217,6 +217,19 @@ impl Node {
                                                 Ok(_) => {
                                                     result = "Value set successfully".to_string();
                                                     memory_store_for_task.set(&key_clone, &fragment_data_clone).await;
+                                                    // Persist the decided erasure-coded entry to persistent storage
+                                                    // Find the most recent decided SET entry for this key
+                                                    if let Some(log_entries) = omni.read_decided_suffix(0) {
+                                                        for log_entry in log_entries.iter().rev() {
+                                                            if let LogEntry::Decided(entry_data) = log_entry {
+                                                                if entry_data.key == key_clone && entry_data.op == OperationType::SET {
+                                                                    // Persist the decided erasure-coded fragment
+                                                                    persistent_store_for_task.set(&key_clone, &entry_data.fragment.data);
+                                                                    break;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 },
                                                 Err(e) => {
                                                     error!("[OMNIPAXOS] Failed to set value: {:?}", e);
