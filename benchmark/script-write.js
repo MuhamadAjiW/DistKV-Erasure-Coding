@@ -27,27 +27,6 @@ export default function () {
     }
   );
   check(putRes, { "PUT succeeded": (r) => r.status === 200 });
-
-  // console.log('PUT Response Status:', putRes.status);
-  // console.log('PUT Response Body:', putRes.body);
-
-  // const getRes = http.post(`${BASE_URL}/kv/range`, JSON.stringify({ key: encodedKey }), {
-  //     headers: { 'Content-Type': 'application/json' },
-  // });
-  // check(getRes, { 'GET succeeded': (r) => r.status === 200 });
-
-  // console.log('GET Response Status:', getRes.status);
-  // console.log('GET Response Body:', getRes.body);
-
-  // const delRes = http.post(`${BASE_URL}/kv/deleterange`, JSON.stringify({ key: encodedKey }), {
-  //     headers: { 'Content-Type': 'application/json' },
-  // });
-  // check(delRes, { 'DELETE succeeded': (r) => r.status === 200 });
-
-  // console.log('DELETE Response Status:', delRes.status);
-  // console.log('DELETE Response Body:', delRes.body);
-
-  // sleep(1);
 }
 
 export function handleSummary(data) {

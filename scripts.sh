@@ -255,7 +255,7 @@ bandwidth=(
     # 10gbit for typical data center connections
     # 256kbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
 
-    10mbit 25mbit 40mbit 55mbit 70mbit
+    256kbit
 )
 
 bench_system() {
@@ -264,26 +264,38 @@ bench_system() {
         exit 1
     fi
 
-    echo "Running system benchmark..."
-    local base_url_env="$1"
+    local test_type="write" # default
+    local base_url_env=""
+    if [[ "$1" == "read" || "$1" == "write" ]]; then
+        test_type="$1"
+        shift
+    fi
+    base_url_env="$1"
     local base_url_arg=""
     if [ -n "$base_url_env" ]; then
         base_url_arg="-e \"BASE_URL=$base_url_env\""
     fi
+
+    local script_file="./benchmark/script-write.js"
+    if [[ "$test_type" == "read" ]]; then
+        script_file="./benchmark/script-read.js"
+    fi
+
+    local result_dir="./benchmark/results/${test_type}"
+    mkdir -p "$result_dir"
+
     for bandwidth_value in "${bandwidth[@]}"; do
         for vus_value in "${virtual_users[@]}"; do
             for size_value in "${size[@]}"; do
                 add_netem_limits "$bandwidth_value"
-                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: ${base_url_env}"
-                # Start mpstat in the background
-                mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
+                
+                echo "Using k6 ($test_type) with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: ${base_url_env}"
+                mpstat 1 > "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
                 MPSTAT_PID=$!
-                # Run k6
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
-                # Stop mpstat
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
                 kill $MPSTAT_PID
-                # Optional: Print average CPU usage
-                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "$result_dir/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+
                 remove_netem_limits
             done
         done
@@ -295,32 +307,40 @@ bench_system_with_reset() {
         echo "This function must be run as root (sudo)."
         exit 1
     fi
-    echo "Running system benchmark..."
-
+    local test_type="write" # default
+    if [[ "$1" == "read" || "$1" == "write" ]]; then
+        test_type="$1"
+        shift
+    fi
+    echo "Running system benchmark ($test_type)..."
+    local script_file="./benchmark/script-write.js"
+    if [[ "$test_type" == "read" ]]; then
+        script_file="./benchmark/script-read.js"
+    fi
+    local result_dir="./benchmark/results/${test_type}"
+    mkdir -p "$result_dir"
     for bandwidth_value in "${bandwidth[@]}"; do
         for vus_value in "${virtual_users[@]}"; do
             for size_value in "${size[@]}"; do
                 # Reset the system before each benchmark
                 stop_all
                 run_all "$@"
-                sleep 5 # Wait for the system to stabilize after restart
+                sleep 5
 
                 add_netem_limits "$bandwidth_value"
-                echo "Using k6 with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: $@"
-                # Start mpstat in the background
-                mpstat 1 > "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
+
+                echo "Using k6 ($test_type) with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: $@"
+                mpstat 1 > "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
                 MPSTAT_PID=$!
-                # Run k6
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-system.js > "./benchmark/results/_system_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
-                # Stop mpstat
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
                 kill $MPSTAT_PID
-                # Optional: Print average CPU usage
-                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "./benchmark/results/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "./benchmark/results/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+                awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "$result_dir/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+
                 remove_netem_limits
             done
         done
     done
-
+    
     stop_all
 }
 
@@ -368,37 +388,53 @@ run_bench_suite() {
     echo "Starting benchmark suite..."
 
     # Benchmark replication
-    echo "Benchmarking replication..."
-    
-    bench_system_with_reset
-
-    if [ -d ./benchmark/results/replication ]; then
-        mv ./benchmark/results/replication ./benchmark/results/replication_$timestamp
+    echo "Benchmarking replication (write)..."
+    bench_system_with_reset write
+    if [ -d ./benchmark/results/replication/write ]; then
+        mv ./benchmark/results/replication/write ./benchmark/results/replication/write_$timestamp
     fi
-    mkdir -p ./benchmark/results/replication
-    mv ./benchmark/results/_system_*.json ./benchmark/results/replication/
-    mv ./benchmark/results/cpu_*.log ./benchmark/results/replication/
-    mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/replication/
+    mkdir -p ./benchmark/results/replication/write
+    mv ./benchmark/results/write/_write_*.json ./benchmark/results/replication/write/
+    mv ./benchmark/results/write/cpu_*.log ./benchmark/results/replication/write/
+    mv ./benchmark/results/write/cpu_avg_*.txt ./benchmark/results/replication/write/
+
+    echo "Benchmarking replication (read)..."
+    bench_system_with_reset read
+    if [ -d ./benchmark/results/replication/read ]; then
+        mv ./benchmark/results/replication/read ./benchmark/results/replication/read_$timestamp
+    fi
+    mkdir -p ./benchmark/results/replication/read
+    mv ./benchmark/results/read/_read_*.json ./benchmark/results/replication/read/
+    mv ./benchmark/results/read/cpu_*.log ./benchmark/results/replication/read/
+    mv ./benchmark/results/read/cpu_avg_*.txt ./benchmark/results/replication/read/
 
     echo "Replication benchmark completed. Results are stored in ./benchmark/results/replication."
 
     # Benchmark erasure coding
-    echo "Benchmarking erasure coding..."
-
-    bench_system_with_reset --erasure
-
-    if [ -d ./benchmark/results/erasure ]; then
-        mv ./benchmark/results/erasure ./benchmark/results/erasure_$timestamp
+    echo "Benchmarking erasure coding (write)..."
+    bench_system_with_reset write --erasure
+    if [ -d ./benchmark/results/erasure/write ]; then
+        mv ./benchmark/results/erasure/write ./benchmark/results/erasure/write_$timestamp
     fi
-    mkdir -p ./benchmark/results/erasure
-    mv ./benchmark/results/_system_*.json ./benchmark/results/erasure/
-    mv ./benchmark/results/cpu_*.log ./benchmark/results/erasure/
-    mv ./benchmark/results/cpu_avg_*.txt ./benchmark/results/erasure/
+    mkdir -p ./benchmark/results/erasure/write
+    mv ./benchmark/results/write/_write_*.json ./benchmark/results/erasure/write/
+    mv ./benchmark/results/write/cpu_*.log ./benchmark/results/erasure/write/
+    mv ./benchmark/results/write/cpu_avg_*.txt ./benchmark/results/erasure/write/
+
+    echo "Benchmarking erasure coding (read)..."
+    bench_system_with_reset read --erasure
+    if [ -d ./benchmark/results/erasure/read ]; then
+        mv ./benchmark/results/erasure/read ./benchmark/results/erasure/read_$timestamp
+    fi
+    mkdir -p ./benchmark/results/erasure/read
+    mv ./benchmark/results/read/_read_*.json ./benchmark/results/erasure/read/
+    mv ./benchmark/results/read/cpu_*.log ./benchmark/results/erasure/read/
+    mv ./benchmark/results/read/cpu_avg_*.txt ./benchmark/results/erasure/read/
 
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
     echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
-    echo "You can analyze the results using k6's HTML report generation or other tools."    
+    echo "You can analyze the results using k6's HTML report generation or other tools."
 }
 
 add_netem_limits() {
