@@ -250,7 +250,7 @@ impl Node {
                                                 } else {
                                                     result = "Failed to decode value".to_string();
                                                 }
-                                            } 
+                                            }
                                             // 2. Check persistent storage (requires EC reconstruction)
                                             else if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
                                                 let mut fragments = vec![EntryFragment {
@@ -435,11 +435,17 @@ impl Node {
                                             info!("[OMNIPAXOS] Processing RECONSTRUCT for key: {}", entry.key);
 
                                             // Search through decided entries to find the key
+                                            // First, check persistent storage for the fragment
                                             let mut key_found = false;
-                                            if let Some(log_entries) = omni.read_decided_suffix(0) {
+                                            if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
+                                                key_found = true;
+                                                if let Ok(value) = String::from_utf8(persisted_fragment.clone()) {
+                                                    result = value;
+                                                } else {
+                                                    result = "Failed to decode value".to_string();
+                                                }
+                                            } else if let Some(log_entries) = omni.read_decided_suffix(0) {
                                                 for log_entry in log_entries.iter().rev() {
-
-                                                    // Match on the LogEntry enum
                                                     match log_entry {
                                                         LogEntry::Decided(entry_data) => {
                                                             if entry_data.key == entry.key && entry_data.op == OperationType::SET {
