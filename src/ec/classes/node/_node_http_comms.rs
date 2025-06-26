@@ -156,6 +156,41 @@ impl Node {
     }
 
     #[instrument(level = "debug", skip_all)]
+    pub async fn http_get_fragment(
+        node_data: web::Data<Arc<RwLock<Node>>>,
+        body: web::Json<GetBody>,
+    ) -> impl Responder {
+        info!(
+            "[REQUEST] GET fragment request received for key: {}",
+            body.key
+        );
+
+        // Validate input data
+        if body.key.trim().is_empty() {
+            return HttpResponse::BadRequest().json(BaseResponse {
+                key: "error".to_string(),
+                response: "Key cannot be empty".to_string(),
+            });
+        }
+
+        let ec_entry = ECKeyValue {
+            key: body.key.clone(),
+            fragment: EntryFragment::default(),
+            op: OperationType::GET,
+        };
+
+        let node = node_data.read().await;
+        let result = node.send_omnipaxos_request(ec_entry).await;
+
+        let response = BaseResponse {
+            key: body.key.clone(),
+            response: result,
+        };
+
+        HttpResponse::Ok().json(response)
+    }
+
+    #[instrument(level = "debug", skip_all)]
     pub async fn http_put(
         node_data: web::Data<Arc<RwLock<Node>>>,
         body: web::Json<PostBody>,
@@ -491,6 +526,7 @@ impl Node {
 
     pub fn register_services(cfg: &mut web::ServiceConfig) {
         cfg.service(web::resource("/health").route(web::get().to(Self::http_healthcheck)))
+            .service(web::resource("/get/fragment").route(web::post().to(Self::http_get_fragment)))
             .service(web::resource("/get").route(web::post().to(Self::http_get)))
             .service(web::resource("/put").route(web::post().to(Self::http_put)))
             .service(web::resource("/delete").route(web::post().to(Self::http_delete)))
