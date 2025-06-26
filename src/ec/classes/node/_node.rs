@@ -387,11 +387,13 @@ impl Node {
                                         },
                                         OperationType::DELETE => {
                                             info!("[OMNIPAXOS] Appending DELETE entry for key: {}", entry.key);
-                                            let key = entry.key.clone();
+                                            let key_clone = entry.key.clone();
                                             match omni.append(entry) {
                                                 Ok(_) => {
+                                                    // Remove from memory and persistent storage
+                                                    memory_store_for_task.remove(&key_clone).await;
+                                                    persistent_store_for_task.remove(&key_clone);
                                                     result = "Value deleted successfully".to_string();
-                                                    memory_store.remove(&key).await;
                                                 },
                                                 Err(e) => {
                                                     error!("[OMNIPAXOS] Failed to delete value: {:?}", e);
