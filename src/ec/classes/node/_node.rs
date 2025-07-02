@@ -11,7 +11,7 @@ use actix_web::{web, App, HttpServer};
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use tokio::time::{interval, sleep};
 use tokio::{net::TcpListener, sync::RwLock};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 use crate::config::_address::Address;
 use crate::config::_config::Config;
