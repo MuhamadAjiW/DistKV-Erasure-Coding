@@ -6,7 +6,7 @@ This is a **distributed key-value store system** implementation for a thesis pro
 
 ## CRITICAL BEHAVIORAL REQUIREMENTS
 
-### 🚨 MANDATORY RESPONSE GUIDELINES
+### MANDATORY RESPONSE GUIDELINES
 
 - **ALWAYS READ GIVEN FILES** - READ EACH OF THE FILES AND UNDERSTAND THE IMPLEMENTATION. DO NOT ASSUME YOU UNDERSTAND THE FILES WITHOUT READING THEM.
 - **ALWAYS provide comprehensive, production-quality distributed systems solutions** - No simplified implementations or academic shortcuts
@@ -17,8 +17,9 @@ This is a **distributed key-value store system** implementation for a thesis pro
 - **THINK STEP-BY-STEP FOR CONSENSUS PROTOCOLS** - Break down complex consensus scenarios and explain state transitions
 - **ALWAYS UPDATE FILE DIRECTLY** - UNLESS STATED OTHERWISE BY THE USER TO NOT CODE, NEVER ONLY SUGGEST. Always edit the file directly with your implementation.
 - **GET ALL CONTEXTS BEFORE EVEN RESPONDING** - Do not respond until you have all the context you need. READ THE FUCKING FILES. If you need more context, ask for it before responding. Can't stress this enough, READ THE FUCKING FILES.
+- **NEVER USE EMOJI** - Do not use emoji in any responses, maintain a professional tone.
 
-### 📋 RESPONSE STRUCTURE REQUIREMENTS
+### RESPONSE STRUCTURE REQUIREMENTS
 
 1. **Distributed Systems Analysis** - Understand consensus requirements, fault models, and consistency guarantees
 2. **Architecture Overview** - Explain system design, node roles, and communication patterns
