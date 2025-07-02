@@ -308,33 +308,77 @@ bench_system_with_reset() {
         exit 1
     fi
     local test_type="write" # default
-    if [[ "$1" == "read" || "$1" == "write" ]]; then
-        test_type="$1"
-        shift
-    fi
+    local enable_trace="false"
+    local other_args=()
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            read|write)
+                test_type="$1"
+                shift
+                ;;
+            --trace)
+                other_args+=("--trace")
+                other_args+=("--file_output")
+                enable_trace="true"
+                shift
+                ;;
+            *)
+                other_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    
     echo "Running system benchmark ($test_type)..."
+    if [[ "$enable_trace" == "true" ]]; then
+        echo "Trace collection enabled: Will capture trace data during k6 benchmark execution"
+    fi
+    
     local script_file="./benchmark/script-write.js"
     if [[ "$test_type" == "read" ]]; then
         script_file="./benchmark/script-read.js"
     fi
     local result_dir="./benchmark/results/${test_type}"
     mkdir -p "$result_dir"
+    
+    # Determine if erasure coding is enabled for trace collection
+    local erasure_mode="false"
+    for arg in "${other_args[@]}"; do
+        if [[ "$arg" == "--erasure" ]]; then
+            erasure_mode="true"
+            break
+        fi
+    done
+    
     for bandwidth_value in "${bandwidth[@]}"; do
         for vus_value in "${virtual_users[@]}"; do
             for size_value in "${size[@]}"; do
                 # Reset the system before each benchmark
                 stop_all
-                run_all "$@"
+                run_all "${other_args[@]}"
                 sleep 5
 
                 add_netem_limits "$bandwidth_value"
 
-                echo "Using k6 ($test_type) with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: $@"
+                echo "Using k6 ($test_type) with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: ${other_args[*]}"
                 mpstat 1 > "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
                 MPSTAT_PID=$!
+                
+                # Clear log file before k6 run if trace collection is enabled
+                if [[ "$enable_trace" == "true" ]]; then
+                    > "./logs/node_0.0.0.0_2184.log"
+                fi
+                
                 k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
                 kill $MPSTAT_PID
                 awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "$result_dir/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
+
+                # Collect trace data if enabled (after k6 benchmark completes)
+                if [[ "$enable_trace" == "true" ]]; then
+                    collect_trace_during_benchmark "$test_type" "$bandwidth_value" "$vus_value" "$size_value" "$erasure_mode" "$script_file" "$result_dir"
+                fi
 
                 remove_netem_limits
             done
@@ -382,14 +426,41 @@ run_bench_suite() {
         echo "This function must be run as root (sudo)."
         exit 1
     fi
+    
+    local enable_trace="false"
+    
+    # Parse arguments for trace collection options
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --trace)
+                enable_trace="true"
+                shift
+                ;;
+            *)
+                echo "Unknown argument: $1"
+                echo "Supported options: --trace"
+                return 1
+                ;;
+        esac
+    done
+    
     timestamp=$(date +%Y%m%d_%H%M%S)
     stop_all
     
     echo "Starting benchmark suite..."
+    if [[ "$enable_trace" == "true" ]]; then
+        echo "Trace collection enabled: Will capture trace data during all k6 benchmark executions"
+    fi
+
+    # Prepare trace collection arguments if enabled
+    local other_args=()
+    if [[ "$enable_trace" == "true" ]]; then
+        other_args+=("--trace")
+    fi
 
     # Benchmark replication
     echo "Benchmarking replication (write)..."
-    bench_system_with_reset write
+    bench_system_with_reset write "${other_args[@]}"
     if [ -d ./benchmark/results/replication/write ]; then
         mv ./benchmark/results/replication/write ./benchmark/results/replication/write_$timestamp
     fi
@@ -399,7 +470,7 @@ run_bench_suite() {
     mv ./benchmark/results/write/cpu_avg_*.txt ./benchmark/results/replication/write/
 
     echo "Benchmarking replication (read)..."
-    bench_system_with_reset read
+    bench_system_with_reset read "${other_args[@]}"
     if [ -d ./benchmark/results/replication/read ]; then
         mv ./benchmark/results/replication/read ./benchmark/results/replication/read_$timestamp
     fi
@@ -412,7 +483,7 @@ run_bench_suite() {
 
     # Benchmark erasure coding
     echo "Benchmarking erasure coding (write)..."
-    bench_system_with_reset write --erasure
+    bench_system_with_reset write --erasure "${other_args[@]}"
     if [ -d ./benchmark/results/erasure/write ]; then
         mv ./benchmark/results/erasure/write ./benchmark/results/erasure/write_$timestamp
     fi
@@ -422,7 +493,7 @@ run_bench_suite() {
     mv ./benchmark/results/write/cpu_avg_*.txt ./benchmark/results/erasure/write/
 
     echo "Benchmarking erasure coding (read)..."
-    bench_system_with_reset read --erasure
+    bench_system_with_reset read --erasure "${other_args[@]}"
     if [ -d ./benchmark/results/erasure/read ]; then
         mv ./benchmark/results/erasure/read ./benchmark/results/erasure/read_$timestamp
     fi
@@ -433,8 +504,79 @@ run_bench_suite() {
 
     echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
 
+    if [[ "$enable_trace" == "true" ]]; then
+        echo "Trace data collected for all parameter combinations and stored in ./benchmark/results/trace."
+        echo "Use the benchmark_trace.ipynb notebook to analyze the trace data."
+    fi
+
+    rm -rf ./benchmark/results/write ./benchmark/results/read
     echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
     echo "You can analyze the results using k6's HTML report generation or other tools."
+}
+
+# Helper function to collect trace data during k6 benchmark execution
+collect_trace_during_benchmark() {
+    local test_type="$1"
+    local bandwidth_value="$2"
+    local vus_value="$3"
+    local size_value="$4"
+    local erasure_mode="$5"
+    local script_file="$6"
+    local result_dir="$7"
+    
+    local output_dir="./benchmark/results/trace"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local log_file="./logs/node_0.0.0.0_2184.log"
+    
+    # Create mode suffix for file naming
+    local mode_suffix=""
+    if [[ "$erasure_mode" == "true" ]]; then
+        mode_suffix="_erasure"
+    else
+        mode_suffix="_replication"
+    fi
+    
+    echo "Collecting trace data during k6 benchmark: ${test_type}${mode_suffix}, ${size_value}b, ${vus_value}vu, ${bandwidth_value}"
+    
+    # Create output directory
+    mkdir -p "$output_dir"
+    
+    # Check if log file exists and has content (it was cleared before k6 run)
+    local log_size=$(stat -c%s "$log_file" 2>/dev/null || echo 0)
+    
+    if [[ $log_size -gt 0 ]]; then
+        # Copy log file to results directory with detailed naming
+        local result_log="$output_dir/trace_${test_type}${mode_suffix}_${size_value}b_${vus_value}vu_${bandwidth_value}_${timestamp}.log"
+        
+        # Clean leading null bytes from the log file
+        tr -d '\0' < "$log_file" > "$result_log"
+        
+        # Get cleaned file size for metadata
+        local cleaned_size=$(stat -c%s "$result_log" 2>/dev/null || echo 0)
+        
+        # Create metadata file
+        local metadata_file="$output_dir/trace_${test_type}${mode_suffix}_${size_value}b_${vus_value}vu_${bandwidth_value}_${timestamp}_metadata.json"
+        cat > "$metadata_file" << EOF
+{
+    "timestamp": "$(date -Iseconds)",
+    "test_type": "$test_type",
+    "mode": "$erasure_mode",
+    "bandwidth": "$bandwidth_value",
+    "virtual_users": $vus_value,
+    "size_bytes": $size_value,
+    "collection_method": "k6_benchmark",
+    "log_file": "$(basename "$result_log")",
+    "k6_script": "$script_file",
+    "k6_result_dir": "$result_dir",
+    "node_log_source": "$log_file",
+    "log_size_bytes": $cleaned_size
+}
+EOF
+        
+        echo "Trace collected: ${cleaned_size} bytes from k6 benchmark execution (cleaned)"
+    else
+        echo "No trace data captured (log file empty or unchanged)"
+    fi
 }
 
 add_netem_limits() {
@@ -477,17 +619,19 @@ elif [ "$1" == "stop_all" ]; then
 elif [ "$1" == "bench_system" ]; then
     bench_system "$2"
 elif [ "$1" == "bench_system_with_reset" ]; then
-    bench_system_with_reset "$2"
+    shift
+    bench_system_with_reset "$@"
 elif [ "$1" == "bench_baseline" ]; then
     bench_baseline
 elif [ "$1" == "run_bench_suite" ]; then
-    run_bench_suite
+    shift
+    run_bench_suite "$@"
 elif [ "$1" == "add_netem_limits" ]; then
     add_netem_limits
 elif [ "$1" == "remove_netem_limits" ]; then
     remove_netem_limits
 elif [ "$1" == "help" ] || [ -z "$1" ]; then
-    echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|add_netem_limits|remove_netem_limits|help}"
+    echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|run_bench_suite|add_netem_limits|remove_netem_limits|help}"
     echo ""
     echo "Commands:"
     echo "  clean                                                                       :"
@@ -511,16 +655,20 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "          Runs k6 benchmark against the running DistKV system."
     echo "          Leader url should be in the format 'http://<leader_ip>:<leader_http_port>'."
     echo ""
-    echo "  bench_system_with_reset [<args>]                                               : "
+    echo "  bench_system_with_reset [<test_type>] [<args>] [--trace] : "
     echo "          Runs k6 benchmark against the system, resetting nodes before each test."
+    echo "          test_type        : 'read' or 'write' (default: write)"
     echo "          Accepts and forwards any arguments to run_all (e.g., --erasure, --trace)."
-    echo "          Example: bench_system_with_reset --erasure"
+    echo "          --trace          : Enable trace data collection during k6 benchmark execution"
+    echo "          Example: bench_system_with_reset write --erasure --trace"
     echo ""
     echo "  bench_baseline                                                              : "
     echo "          Runs k6 benchmark for baseline."
     echo ""
-    echo "  run_bench_suite                                                             : "
+    echo "  run_bench_suite [--trace] : "
     echo "          Runs the full benchmark suite, including replication and erasure coding benchmarks."
+    echo "          --trace           : Enable trace data collection during all k6 benchmark executions"
+    echo "          Example: run_bench_suite --trace"
     echo ""
     echo "  add_netem_limits <bandwidth>                                             : "
     echo "          Adds a bandwidth limit to loopback for ports 2080-2290. Bandwidth must be specified (e.g., 200kbit, 400kbit, 1mbit)."
