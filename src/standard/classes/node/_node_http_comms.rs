@@ -86,6 +86,7 @@ struct EndpointDoc {
 
 impl Node {
     // Utility function to send a request to OmniPaxos and get the response
+    #[instrument(level = "debug", skip_all)]
     pub async fn send_omnipaxos_request(&self, entry: KeyValue) -> String {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
