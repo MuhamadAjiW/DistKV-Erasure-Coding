@@ -8,7 +8,7 @@ use actix_web::{web, App, HttpServer};
 use omnipaxos_storage::persistent_storage::{PersistentStorage, PersistentStorageConfig};
 use tokio::time::{interval, sleep};
 use tokio::{net::TcpListener, sync::RwLock};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::config::_address::Address;
 use crate::config::_config::Config;
@@ -185,7 +185,7 @@ impl Node {
                         let mut send_msgs = Vec::new();
                         match req {
                             OmniPaxosRequest::Network { message } => {
-                                debug!("[OMNIPAXOS] Incoming BLE message: from {:?} to {:?} (msg: {:?})", message.get_sender(), message.get_receiver(), message);
+                                trace!("[OMNIPAXOS] Incoming BLE message: from {:?} to {:?} (msg: {:?})", message.get_sender(), message.get_receiver(), message);
                                 {
                                     let mut omni = omnipaxos_clone.lock().await;
                                     omni.handle_incoming(message);
@@ -193,7 +193,7 @@ impl Node {
                                 }
                             }
                             OmniPaxosRequest::Client { entry, response } => {
-                                debug!("[OMNIPAXOS] Client request: {:?}", entry);
+                                trace!("[OMNIPAXOS] Client request: {:?}", entry);
                                 let mut result = "Operation failed".to_string();
                                 {
                                     let mut omni = omnipaxos_clone.lock().await;
@@ -293,7 +293,7 @@ impl Node {
                         }
                         for (receiver, batch) in peer_batches {
                             if let Some(addr) = peer_addresses.get(&receiver) {
-                                debug!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
+                                trace!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
                                 let _ = send_omnipaxos_message(batch, addr, None).await;
                             }
                         }
@@ -302,10 +302,10 @@ impl Node {
                         let mut send_msgs = Vec::new();
                         {
                             let mut omni = omnipaxos_clone.lock().await;
-                            debug!("[OMNIPAXOS] Tick");
+                            trace!("[OMNIPAXOS] Tick");
                             omni.tick();
                             if let Some((leader, _)) = omni.get_current_leader() {
-                                debug!("[OMNIPAXOS] Current leader: {}", leader);
+                                trace!("[OMNIPAXOS] Current leader: {}", leader);
                             }
                             omni.take_outgoing_messages(&mut send_msgs);
                         }
@@ -318,7 +318,7 @@ impl Node {
                         }
                         for (receiver, batch) in peer_batches {
                             if let Some(addr) = peer_addresses.get(&receiver) {
-                                debug!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
+                                trace!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
                                 let _ = send_omnipaxos_message(batch, addr, None).await;
                             }
                         }
@@ -370,7 +370,7 @@ impl Node {
                 match receive_omnipaxos_message(&socket).await {
                     Ok((_stream, messages)) => {
                         for message in messages {
-                            debug!("[TCP] Received message: {:?}", message);
+                            trace!("[TCP] Received message: {:?}", message);
                             let node = node_arc.read().await;
                             let send_result = node
                                 .omnipaxos_sender
@@ -379,7 +379,7 @@ impl Node {
                             if let Err(e) = send_result {
                                 error!("[TCP] Failed to forward message to OmniPaxos: {}", e);
                             } else {
-                                debug!("[TCP] Forwarded message to OmniPaxos event loop");
+                                trace!("[TCP] Forwarded message to OmniPaxos event loop");
                             }
                         }
                     }
