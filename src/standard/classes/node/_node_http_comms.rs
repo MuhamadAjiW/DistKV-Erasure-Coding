@@ -143,6 +143,7 @@ impl Node {
             key: body.key.clone(),
             value: vec![],
             op: OperationType::GET,
+            version: 0, // Version not needed for GET operations
         };
 
         let node = node_data.read().await;
@@ -175,6 +176,7 @@ impl Node {
             key: body.key.clone(),
             value: body.value.clone().into_bytes(),
             op: OperationType::SET,
+            version: 0, // Version will be determined by the leader before consensus
         };
 
         let node = node_data.read().await;
@@ -207,6 +209,7 @@ impl Node {
             key: body.key.clone(),
             value: vec![],
             op: OperationType::DELETE,
+            version: 0, // Version not needed for DELETE operations
         };
 
         let node = node_data.read().await;
@@ -280,6 +283,7 @@ impl Node {
                     _ => vec![],
                 },
                 op: op_type,
+                version: 0, // Version will be determined by the leader before consensus
             };
 
             let result = node.send_omnipaxos_request(entry).await;

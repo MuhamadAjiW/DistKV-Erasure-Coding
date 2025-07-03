@@ -1,10 +1,11 @@
-use omnipaxos::erasure::ec_service::EntryFragment;
 use serde::{Deserialize, Serialize};
+
+use crate::ec::classes::_entry::ECKeyValue;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ReconstructMessage {
     Request { key: String },
-    Response { fragment: Option<EntryFragment> },
+    Response { fragment: Option<ECKeyValue> },
 }
 
 // Helper to serialize and deserialize ReconstructMessage

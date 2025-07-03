@@ -12,6 +12,7 @@ pub struct ECKeyValue {
     pub key: String,
     pub fragment: EntryFragment,
     pub op: OperationType,
+    pub version: u64,
 }
 
 impl ECEntry for ECKeyValue {
@@ -28,29 +29,50 @@ impl ECEntry for ECKeyValue {
     where
         Self: Sized,
     {
-        Self { key, fragment, op }
+        Self { key, fragment, op, version: 1 }
     }
 }
 
-// The snapshot does not need to keep track of the operation type,
-// as it is not needed for the snapshot itself. Operation type is only needed during the consensus.
+impl ECKeyValue {
+    /// Creates a new ECKeyValue with the specified version
+    pub fn with_version(key: String, fragment: EntryFragment, op: OperationType, version: u64) -> Self {
+        Self { key, fragment, op, version }
+    }
+    
+    /// Sets the version of this entry
+    pub fn set_version(mut self, version: u64) -> Self {
+        self.version = version;
+        self
+    }
+}
+
+// The snapshot needs to track both the fragment and version for consistency
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ECKVSnapshot {
-    snapshotted: HashMap<String, EntryFragment>,
+    snapshotted: HashMap<String, (EntryFragment, u64)>, // (fragment, version)
 }
 
 impl Snapshot<ECKeyValue> for ECKVSnapshot {
     fn create(entries: &[ECKeyValue]) -> Self {
         let mut snapshotted = HashMap::new();
         for e in entries {
-            snapshotted.insert(e.key.clone(), e.fragment.clone());
+            snapshotted.insert(e.key.clone(), (e.fragment.clone(), e.version));
         }
         Self { snapshotted }
     }
 
     fn merge(&mut self, delta: Self) {
-        for (k, v) in delta.snapshotted {
-            self.snapshotted.insert(k, v);
+        for (k, (fragment, version)) in delta.snapshotted {
+            // Only update if the incoming version is newer or key doesn't exist
+            match self.snapshotted.get(&k) {
+                Some((_, current_version)) if *current_version >= version => {
+                    // Keep the existing entry as it's newer or same version
+                }
+                _ => {
+                    // Update with the new entry
+                    self.snapshotted.insert(k, (fragment, version));
+                }
+            }
         }
     }
 

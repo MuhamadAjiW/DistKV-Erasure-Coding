@@ -143,6 +143,7 @@ impl Node {
             key: body.key.clone(),
             fragment: EntryFragment::default(),
             op: OperationType::GET,
+            version: 0, // Version not needed for GET operations
         };
 
         let node = node_data.read().await;
@@ -178,6 +179,7 @@ impl Node {
             key: body.key.clone(),
             fragment: EntryFragment::default(),
             op: OperationType::RECONSTRUCT,
+            version: 0, // Version not needed for RECONSTRUCT operations
         };
 
         let node = node_data.read().await;
@@ -210,6 +212,7 @@ impl Node {
             key: body.key.clone(),
             fragment: EntryFragment::for_request(body.value.clone().into_bytes()),
             op: OperationType::SET,
+            version: 0, // Version will be determined by the leader before consensus
         };
 
         let node = node_data.read().await;
@@ -242,6 +245,7 @@ impl Node {
             key: body.key.clone(),
             fragment: EntryFragment::default(),
             op: OperationType::DELETE,
+            version: 0, // Version not needed for DELETE operations
         };
 
         let node = node_data.read().await;
@@ -318,6 +322,7 @@ impl Node {
                     _ => EntryFragment::default(),
                 },
                 op: op_type,
+                version: 0, // Version will be determined by the leader before consensus
             };
 
             let result = node.send_omnipaxos_request(ec_entry).await;

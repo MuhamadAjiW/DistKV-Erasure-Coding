@@ -63,7 +63,7 @@ pub struct Node {
 
     // Key value storage
     pub memory_storage: Arc<KvMemory>,
-    pub persistent_storage: Arc<KvPersistent<Vec<u8>>>,
+    pub persistent_storage: Arc<KvPersistent<KeyValue>>,
 }
 
 impl Node {
@@ -155,7 +155,8 @@ impl Node {
         let memory_store_for_struct = memory_store.clone();
 
         // Setting up persistent storage
-        let persistent_store = Arc::new(KvPersistent::new(&persistent_path));
+        let persistent_store: Arc<KvPersistent<KeyValue>> =
+            Arc::new(KvPersistent::new(&persistent_path));
         let persistent_store_for_task = persistent_store.clone();
         let persistent_store_for_struct = persistent_store.clone();
 
@@ -198,9 +199,10 @@ impl Node {
                                             trace!("[OMNIPAXOS] Received AcceptDecide with {} entries", entries.entries.len());
                                             for entry in &entries.entries {
                                                 if entry.op == OperationType::SET {
-                                                    info!("[OMNIPAXOS] SET operation received for key: {}", entry.key);
+                                                    info!("[OMNIPAXOS] SET operation received for key: {} with version: {}", entry.key, entry.version);
                                                     memory_store_for_task.set(&entry.key, &entry.value).await;
-                                                    persistent_store_for_task.set(&entry.key, &entry.value);
+                                                    // Store the entire versioned entry
+                                                    persistent_store_for_task.set(&entry.key, entry.clone());
                                                 }
                                             }
                                         }
@@ -223,13 +225,34 @@ impl Node {
                                     match entry.op {
                                         OperationType::SET => {
                                             info!("[OMNIPAXOS] Appending SET entry for key: {}", entry.key);
-                                            // Clone key and fragment data before moving entry
-                                            let key_clone = entry.key.clone();
-                                            let fragment_data_clone = entry.value.clone();
-                                            match omni.append(entry) {
+
+                                            // Determine the next version for this key before consensus
+                                            let next_version = if let Some(existing_entry) = persistent_store_for_task.get(&entry.key) {
+                                                existing_entry.version + 1
+                                            } else {
+                                                1
+                                            };
+
+                                            // Create versioned entry for consensus
+                                            let versioned_entry = KeyValue::with_version(
+                                                entry.key.clone(),
+                                                entry.value.clone(),
+                                                entry.op,
+                                                next_version,
+                                            );
+
+                                            // Clone data for pending set tracking
+                                            let key_clone = versioned_entry.key.clone();
+                                            let value_data_clone = versioned_entry.value.clone();
+
+                                            match omni.append(versioned_entry) {
                                                 Ok(_) => {
-                                                    // Queue for durability
-                                                    pending_sets.push(PendingSet { key: key_clone.clone(), fragment: fragment_data_clone.clone(), response: response_arc.clone() });
+                                                    // Queue for durability with version info
+                                                    pending_sets.push(PendingSet {
+                                                        key: key_clone.clone(),
+                                                        fragment: value_data_clone.clone(),
+                                                        response: response_arc.clone()
+                                                    });
                                                     // Defer HTTP response until persistence
                                                     should_respond = false;
                                                 },
@@ -248,8 +271,8 @@ impl Node {
                                                     .unwrap_or_else(|_| "Failed to decode value".to_string());
                                             }
                                             // 2. Check persistent store before searching logs
-                                            else if let Some(value) = persistent_store_for_task.get(&entry.key) {
-                                                result = String::from_utf8(value.entry)
+                                            else if let Some(stored_entry) = persistent_store_for_task.get(&entry.key) {
+                                                result = String::from_utf8(stored_entry.value)
                                                     .unwrap_or_else(|_| "Failed to decode value".to_string());
                                             }
                                             // 3. Search through decided entries to find the key
@@ -338,9 +361,10 @@ impl Node {
                                 for log_entry in log_entries.iter().rev() {
                                     if let LogEntry::Decided(entry_data) = log_entry {
                                         if entry_data.key == ps.key && entry_data.op == OperationType::SET {
-                                            info!("[OMNIPAXOS] Successfully decided SET entry for key: {}", ps.key);
+                                            info!("[OMNIPAXOS] Successfully decided SET entry for key: {} with version: {}", ps.key, entry_data.version);
                                             memory_store_for_task.set(&ps.key, &ps.fragment).await;
-                                            persistent_store_for_task.set(&ps.key, &ps.fragment);
+                                            // Store the entire versioned entry
+                                            persistent_store_for_task.set(&ps.key, entry_data.clone());
                                             if let Some(sender) = ps.response.lock().await.take() {
                                                 let _ = sender.send("Value set successfully".to_string());
                                             }

@@ -17,7 +17,8 @@ use tracing::{error, info, instrument, trace, warn};
 use crate::config::_address::Address;
 use crate::config::_config::Config;
 use crate::config::_constants::{
-    BUFFER_SIZE, ELECTION_TICK_TIMEOUT, RECONNECT_INTERVAL, TICK_PERIOD,
+    BUFFER_SIZE, ELECTION_TICK_TIMEOUT, RECONNECT_INTERVAL, RECONSTRUCTION_WAIT_TIMEOUT,
+    TICK_PERIOD,
 };
 use crate::config::_pending_set::PendingSet;
 use crate::ec::base_libs::_types::{OmniPaxosECKV, OmniPaxosECMessage};
@@ -69,7 +70,7 @@ pub struct Node {
 
     // Key value storage
     pub memory_storage: Arc<KvMemory>,
-    pub persistent_storage: Arc<KvPersistent<EntryFragment>>,
+    pub persistent_storage: Arc<KvPersistent<ECKeyValue>>,
 }
 
 impl Node {
@@ -166,7 +167,7 @@ impl Node {
         let memory_store_for_struct = memory_store.clone();
 
         // Setting up persistent storage
-        let persistent_store: Arc<KvPersistent<EntryFragment>> =
+        let persistent_store: Arc<KvPersistent<ECKeyValue>> =
             Arc::new(KvPersistent::new(&persistent_path));
         let persistent_store_for_task = persistent_store.clone();
         let persistent_store_for_struct = persistent_store.clone();
@@ -207,9 +208,10 @@ impl Node {
                                             trace!("[OMNIPAXOS] Received AcceptDecide with {} entries", entries.entries.len());
                                             for entry in &entries.entries {
                                                 if entry.op == OperationType::SET {
-                                                    info!("[OMNIPAXOS] SET operation received for key: {}", entry.key);
+                                                    info!("[OMNIPAXOS] SET operation received for key: {} with version: {}", entry.key, entry.version);
                                                     memory_store_for_task.remove(&entry.key).await;
-                                                    persistent_store_for_task.set(&entry.key, &entry.fragment);
+                                                    // Store the entire versioned entry
+                                                    persistent_store_for_task.set(&entry.key, entry.clone());
                                                 }
                                             }
                                         }
@@ -232,13 +234,34 @@ impl Node {
                                     match entry.op {
                                         OperationType::SET => {
                                             info!("[OMNIPAXOS] Appending SET entry for key: {}", entry.key);
-                                            // Clone key and fragment data before moving entry
-                                            let key_clone = entry.key.clone();
-                                            let fragment_data_clone = entry.fragment.data.clone();
-                                            match omni.append(entry) {
+
+                                            // Determine the next version for this key before consensus
+                                            let next_version = if let Some(existing_entry) = persistent_store_for_task.get(&entry.key) {
+                                                existing_entry.version + 1
+                                            } else {
+                                                1
+                                            };
+
+                                            // Create versioned entry for consensus
+                                            let versioned_entry = ECKeyValue::with_version(
+                                                entry.key.clone(),
+                                                entry.fragment.clone(),
+                                                entry.op,
+                                                next_version,
+                                            );
+
+                                            // Clone data for pending set tracking
+                                            let key_clone = versioned_entry.key.clone();
+                                            let fragment_data_clone = versioned_entry.fragment.data.clone();
+
+                                            match omni.append(versioned_entry) {
                                                 Ok(_) => {
-                                                    // Queue for durability
-                                                    pending_sets.push(PendingSet { key: key_clone.clone(), fragment: fragment_data_clone.clone(), response: response_arc.clone() });
+                                                    // Queue for durability with version info
+                                                    pending_sets.push(PendingSet {
+                                                        key: key_clone.clone(),
+                                                        fragment: fragment_data_clone.clone(),
+                                                        response: response_arc.clone()
+                                                    });
                                                     // Defer HTTP response until persistence
                                                     should_respond = false;
                                                 },
@@ -261,19 +284,25 @@ impl Node {
                                                     result = "Failed to decode value".to_string();
                                                 }
                                             }
-                                            // 2. Check persistent storage (requires EC reconstruction)
-                                            else if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
-                                                let mut fragments = vec![EntryFragment {
-                                                    data: persisted_fragment.clone().entry.data,
-                                                    ..Default::default()
-                                                }];
+
+                                            // 2. Check persistent storage and collect fragments from peers
+                                            else {
+                                                let mut version_fragments: HashMap<u64, Vec<EntryFragment>> = HashMap::new();
                                                 let ec_service = omni.ec_service();
                                                 let k = ec_service.data_shards;
 
-                                                // Collect additional fragments from peers if needed
+                                                // Add local fragment if we have one in persistent storage
+                                                if let Some(persisted_entry) = persistent_store.get(&entry.key) {
+                                                    version_fragments.entry(persisted_entry.version).or_insert_with(Vec::new).push(EntryFragment {
+                                                        data: persisted_entry.fragment.data.clone(),
+                                                        ..Default::default()
+                                                    });
+                                                }
+
+                                                // Collect additional fragments from peers
                                                 let mut handles = Vec::new();
                                                 let key = entry.key.clone();
-                                                info!("[EC-RECONSTRUCT] Collecting additional fragments for key {} from {} peers (TCP)", key, peer_addresses.len());
+                                                info!("[EC-RECONSTRUCT] Collecting fragments for key {} from {} peers (TCP)", key, peer_addresses.len());
                                                 for (_peer_id, peer_addr) in peer_addresses.iter() {
                                                     let key = key.clone();
                                                     let peer_addr = peer_addr.clone();
@@ -294,8 +323,8 @@ impl Node {
                                                                 if stream.read_exact(&mut buffer).await.is_err() {
                                                                     return None;
                                                                 }
-                                                                match bincode::deserialize::<EntryFragment>(&buffer) {
-                                                                    Ok(fragment) => Some(fragment),
+                                                                match bincode::deserialize::<ECKeyValue>(&buffer) {
+                                                                    Ok(entry) => Some((entry.version, entry.fragment)),
                                                                     Err(_) => None,
                                                                 }
                                                             }
@@ -303,124 +332,83 @@ impl Node {
                                                         }
                                                     }));
                                                 }
-                                                // Wait for all responses, but with a timeout
-                                                let timeout = tokio::time::Duration::from_millis(1000);
-                                                let mut timed_out = false;
+
+                                                // Wait for responses and collect fragments by version
+                                                let timeout = tokio::time::Duration::from_millis(RECONSTRUCTION_WAIT_TIMEOUT);
                                                 for handle in handles {
                                                     match tokio::time::timeout(timeout, handle).await {
-                                                        Ok(Ok(Some(fragment))) => {
+                                                        Ok(Ok(Some((version, fragment)))) => {
+                                                            let fragments = version_fragments.entry(version).or_insert_with(Vec::new);
                                                             // Avoid duplicate fragments
                                                             if !fragments.iter().any(|f| f.data == fragment.data) {
                                                                 fragments.push(fragment);
                                                             }
-                                                            if fragments.len() >= k {
-                                                                break;
-                                                            }
                                                         }
                                                         Ok(_) => {}, // Task finished but no fragment
-                                                        Err(_) => { timed_out = true; }, // Timeout
+                                                        Err(_) => {}, // Timeout on individual request
                                                     }
                                                 }
-                                                if fragments.len() >= k {
-                                                    // Attempt to reconstruct value
-                                                    match ec_service.decode(&fragments) {
-                                                        Ok(data) => {
-                                                            if let Ok(value_str) = String::from_utf8(data) {
-                                                                result = value_str;
-                                                            } else {
-                                                                result = "Failed to decode value".to_string();
+
+                                                // Find the version with enough fragments (k shards minimum)
+                                                let best_version = version_fragments.iter()
+                                                    .filter(|(_, fragments)| fragments.len() >= k)
+                                                    .max_by_key(|(version, fragments)| (fragments.len(), *version))
+                                                    .map(|(version, _)| *version);
+
+                                                if let Some(best_version) = best_version {
+                                                    if let Some(fragments) = version_fragments.get(&best_version) {
+                                                        // Attempt to reconstruct value
+                                                        match ec_service.decode(fragments) {
+                                                            Ok(data) => {
+                                                                let data_clone = data.clone();
+                                                                if let Ok(value_str) = String::from_utf8(data) {
+                                                                    result = value_str;
+                                                                    memory_store_for_task.set(&entry.key, &data_clone).await;
+                                                                } else {
+                                                                    result = "Failed to decode value".to_string();
+                                                                }
+                                                            }
+                                                            Err(e) => {
+                                                                result = format!("Failed to reconstruct value: {:?}", e);
                                                             }
                                                         }
-                                                        Err(e) => {
-                                                            result = format!("Failed to reconstruct value: {:?}", e);
-                                                        }
                                                     }
-                                                } else if timed_out {
-                                                    result = "Timeout while collecting fragments from peers".to_string();
-                                                } else {
-                                                    result = "Not enough fragments to reconstruct value".to_string();
                                                 }
-                                            }
-                                            // 3. Fallback: Search through decided log entries for the key
-                                            else {
-                                                let mut key_found = false;
-                                                if let Some(log_entries) = omni.read_decided_suffix(0) {
+
+                                                // If no version had enough fragments, check the log as fallback
+                                                else if let Some(log_entries) = omni.read_decided_suffix(0) {
+                                                    let mut key_found = false;
                                                     for log_entry in log_entries.iter().rev() {
                                                         match log_entry {
                                                             LogEntry::Decided(entry_data) => {
                                                                 if entry_data.key == entry.key && entry_data.op == OperationType::SET {
-                                                                    // Found the most recent SET for this key
+                                                                    // Found the most recent SET for this key, add its fragment to collection
                                                                     key_found = true;
-                                                                    let ec_service = omni.ec_service();
-                                                                    let k = ec_service.data_shards;
+                                                                    let log_version = entry_data.version;
+                                                                    version_fragments.entry(log_version).or_insert_with(Vec::new).push(EntryFragment {
+                                                                        data: entry_data.fragment.data.clone(),
+                                                                        ..Default::default()
+                                                                    });
 
-                                                                    // Use peer_addresses for distributed fragment collection via TCP
-                                                                    let mut fragments: Vec<EntryFragment> = Vec::new();
-                                                                    let mut handles = Vec::new();
-                                                                    let key = entry.key.clone();
-                                                                    info!("[EC-RECONSTRUCT] Collecting fragments for key {} from {} peers (TCP)", key, peer_addresses.len());
-                                                                    for (_peer_id, peer_addr) in peer_addresses.iter() {
-                                                                        let key = key.clone();
-                                                                        let peer_addr = peer_addr.clone();
-                                                                        handles.push(tokio::spawn(async move {
-                                                                            let msg = ReconstructMessage::Request { key };
-                                                                            let bytes = serialize_reconstruct_message(&msg);
-                                                                            match TcpStream::connect(&peer_addr).await {
-                                                                                Ok(mut stream) => {
-                                                                                    let _ = stream.write_all(&(bytes.len() as u32).to_be_bytes()).await;
-                                                                                    let _ = stream.write_all(&bytes).await;
-                                                                                    let mut len_buf = [0u8; 4];
-                                                                                    if stream.read_exact(&mut len_buf).await.is_err() {
-                                                                                        return None;
-                                                                                    }
-                                                                                    let len = u32::from_be_bytes(len_buf) as usize;
-                                                                                    if len == 0 { return None; }
-                                                                                    let mut buffer = vec![0; len];
-                                                                                    if stream.read_exact(&mut buffer).await.is_err() {
-                                                                                        return None;
-                                                                                    }
-                                                                                    match bincode::deserialize::<EntryFragment>(&buffer) {
-                                                                                        Ok(fragment) => Some(fragment),
-                                                                                        Err(_) => None,
+                                                                    // Try to find version with enough fragments again
+                                                                    if let Some(fragments) = version_fragments.get(&log_version) {
+                                                                        if fragments.len() >= k {
+                                                                            match ec_service.decode(fragments) {
+                                                                                Ok(data) => {
+                                                                                    let data_clone = data.clone();
+                                                                                    if let Ok(value_str) = String::from_utf8(data) {
+                                                                                        result = value_str;
+                                                                                        memory_store_for_task.set(&entry.key, &data_clone).await;
+                                                                                    } else {
+                                                                                        result = "Failed to decode value".to_string();
                                                                                     }
                                                                                 }
-                                                                                Err(_) => None,
-                                                                            }
-                                                                        }));
-                                                                    }
-                                                                    // Wait for all responses, but with a timeout
-                                                                    let timeout = tokio::time::Duration::from_millis(1000);
-                                                                    let mut timed_out = false;
-                                                                    for handle in handles {
-                                                                        match tokio::time::timeout(timeout, handle).await {
-                                                                            Ok(Ok(Some(fragment))) => {
-                                                                                fragments.push(fragment);
-                                                                                if fragments.len() >= k {
-                                                                                    break;
+                                                                                Err(e) => {
+                                                                                    result = format!("Failed to reconstruct value: {:?}", e);
                                                                                 }
                                                                             }
-                                                                            Ok(_) => {}, // Task finished but no fragment
-                                                                            Err(_) => { timed_out = true; }, // Timeout
+                                                                            break;
                                                                         }
-                                                                    }
-                                                                    if fragments.len() >= k {
-                                                                        // Attempt to reconstruct value
-                                                                        match ec_service.decode(&fragments) {
-                                                                            Ok(data) => {
-                                                                                if let Ok(value_str) = String::from_utf8(data) {
-                                                                                    result = value_str;
-                                                                                } else {
-                                                                                    result = "Failed to decode value".to_string();
-                                                                                }
-                                                                            }
-                                                                            Err(e) => {
-                                                                                result = format!("Failed to reconstruct value: {:?}", e);
-                                                                            }
-                                                                        }
-                                                                    } else if timed_out {
-                                                                        result = "Timeout while collecting fragments from peers".to_string();
-                                                                    } else {
-                                                                        result = "Not enough fragments to reconstruct value".to_string();
                                                                     }
                                                                     break;
                                                                 } else if entry_data.key == entry.key && entry_data.op == OperationType::DELETE {
@@ -434,9 +422,13 @@ impl Node {
                                                             _ => continue,
                                                         }
                                                     }
-                                                }
 
-                                                if !key_found {
+                                                    if !key_found {
+                                                        result = "Key not found".to_string();
+                                                    } else if result == "Operation failed" {
+                                                        result = "Not enough fragments to reconstruct value".to_string();
+                                                    }
+                                                } else {
                                                     result = "Key not found".to_string();
                                                 }
                                             }
@@ -447,9 +439,9 @@ impl Node {
                                             // Search through decided entries to find the key
                                             // First, check persistent storage for the fragment
                                             let mut key_found = false;
-                                            if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
+                                            if let Some(persisted_entry) = persistent_store.get(&entry.key) {
                                                 key_found = true;
-                                                if let Ok(value) = String::from_utf8(persisted_fragment.clone().entry.data) {
+                                                if let Ok(value) = String::from_utf8(persisted_entry.fragment.data.clone()) {
                                                     result = value;
                                                 } else {
                                                     result = "Failed to decode value".to_string();
@@ -542,9 +534,10 @@ impl Node {
                                 for log_entry in log_entries.iter().rev() {
                                     if let LogEntry::Decided(entry_data) = log_entry {
                                         if entry_data.key == ps.key && entry_data.op == OperationType::SET {
-                                            info!("[OMNIPAXOS] Successfully decided SET entry for key: {}", ps.key);
+                                            info!("[OMNIPAXOS] Successfully decided SET entry for key: {} with version: {}", ps.key, entry_data.version);
                                             memory_store_for_task.set(&ps.key, &ps.fragment).await;
-                                            persistent_store_for_task.set(&ps.key, &entry_data.fragment);
+                                            // Store the entire versioned entry
+                                            persistent_store_for_task.set(&ps.key, entry_data.clone());
                                             if let Some(sender) = ps.response.lock().await.take() {
                                                 let _ = sender.send("Value set successfully".to_string());
                                             }
@@ -665,20 +658,28 @@ impl Node {
                             info!("[TCP] Received RECONSTRUCT request for key {}", key);
                             // Find fragment for key
                             let node = node_arc.read().await;
-                            let omni = node.omnipaxos.lock().await;
-                            let mut found = None;
-                            if let Some(log_entries) = omni.read_decided_suffix(0) {
-                                for log_entry in log_entries.iter().rev() {
-                                    if let LogEntry::Decided(entry_data) = log_entry {
-                                        if entry_data.key == key
-                                            && entry_data.op == OperationType::SET
-                                        {
-                                            found = Some(entry_data.fragment.clone());
-                                            break;
+                            let mut found: Option<ECKeyValue> = None;
+
+                            // 1. Try persistent storage first (fast path)
+                            if let Some(entry) = node.persistent_storage.get(&key) {
+                                found = Some(entry.clone());
+                            } else {
+                                // 2. Fallback: Search through decided log entries for the key
+                                let omni = node.omnipaxos.lock().await;
+                                if let Some(log_entries) = omni.read_decided_suffix(0) {
+                                    for log_entry in log_entries.iter().rev() {
+                                        if let LogEntry::Decided(entry_data) = log_entry {
+                                            if entry_data.key == key
+                                                && entry_data.op == OperationType::SET
+                                            {
+                                                found = Some(entry_data.clone());
+                                                break;
+                                            }
                                         }
                                     }
                                 }
                             }
+
                             // Send raw fragment bytes directly (no base64, just bincode)
                             if let Some(fragment) = found {
                                 let fragment_bytes = bincode::serialize(&fragment).unwrap();
