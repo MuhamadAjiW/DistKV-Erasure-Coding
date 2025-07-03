@@ -1,5 +1,6 @@
 use core::panic;
 use omnipaxos::erasure::log_entry::OperationType;
+use omnipaxos::messages::sequence_paxos::PaxosMsg;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::Duration;
@@ -191,6 +192,20 @@ impl Node {
                                 trace!("[OMNIPAXOS] Incoming BLE message: from {:?} to {:?} (msg: {:?})", message.get_sender(), message.get_receiver(), message);
                                 {
                                     let mut omni = omnipaxos_clone.lock().await;
+                                    // Handle AcceptDecide (SET) messages and update memory store
+                                    if let OmniPaxosMessage::SequencePaxos(paxos_msg) = &message {
+                                        if let PaxosMsg::AcceptDecide(entries) = &paxos_msg.msg {
+                                            trace!("[OMNIPAXOS] Received AcceptDecide with {} entries", entries.entries.len());
+                                            for entry in &entries.entries {
+                                                if entry.op == OperationType::SET {
+                                                    info!("[OMNIPAXOS] SET operation received for key: {}", entry.key);
+                                                    memory_store_for_task.set(&entry.key, &entry.value).await;
+                                                    persistent_store_for_task.set(&entry.key, &entry.value);
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     omni.handle_incoming(message);
                                     omni.take_outgoing_messages(&mut send_msgs);
                                 }
