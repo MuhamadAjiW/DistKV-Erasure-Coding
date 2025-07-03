@@ -257,6 +257,8 @@ bandwidth=(
 
     256kbit
 )
+# Rough time calculation: vu * size * bandwidth * 2 (ec/rep) * 2 (rw) * 5 (5 minutes per case)
+
 
 bench_system() {
     if [[ $EUID -ne 0 ]]; then
