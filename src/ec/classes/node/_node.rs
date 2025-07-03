@@ -18,6 +18,7 @@ use crate::config::_config::Config;
 use crate::config::_constants::{
     BUFFER_SIZE, ELECTION_TICK_TIMEOUT, RECONNECT_INTERVAL, TICK_PERIOD,
 };
+use crate::config::_pending_set::PendingSet;
 use crate::ec::base_libs::_types::{OmniPaxosECKV, OmniPaxosECMessage};
 use crate::ec::base_libs::network::_messages::send_omnipaxos_message;
 use crate::ec::base_libs::network::_reconstruct::{
@@ -67,7 +68,7 @@ pub struct Node {
 
     // Key value storage
     pub memory_storage: Arc<KvMemory>,
-    pub persistent_storage: Arc<KvPersistent>,
+    pub persistent_storage: Arc<KvPersistent<EntryFragment>>,
 }
 
 impl Node {
@@ -164,7 +165,8 @@ impl Node {
         let memory_store_for_struct = memory_store.clone();
 
         // Setting up persistent storage
-        let persistent_store = Arc::new(KvPersistent::new(&persistent_path));
+        let persistent_store: Arc<KvPersistent<EntryFragment>> =
+            Arc::new(KvPersistent::new(&persistent_path));
         let persistent_store_for_task = persistent_store.clone();
         let persistent_store_for_struct = persistent_store.clone();
 
@@ -185,6 +187,7 @@ impl Node {
         tokio::spawn(async move {
             info!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
             sleep(Duration::from_millis(jitter_ms)).await;
+            let mut pending_sets: Vec<PendingSet> = Vec::new();
             let mut tick_interval = interval(TICK_PERIOD);
 
             loop {
@@ -203,6 +206,9 @@ impl Node {
                             }
                             OmniPaxosRequest::Client { entry, response } => {
                                 trace!("[OMNIPAXOS] Client request: {:?}", entry);
+                                let response_arc = Arc::new(Mutex::new(Some(response)));
+                                // Flag to determine if immediate HTTP response should be sent
+                                let mut should_respond = true;
                                 let mut result = "Operation failed".to_string();
                                 {
                                     let mut omni = omnipaxos_clone.lock().await;
@@ -216,21 +222,10 @@ impl Node {
                                             let fragment_data_clone = entry.fragment.data.clone();
                                             match omni.append(entry) {
                                                 Ok(_) => {
-                                                    result = "Value set successfully".to_string();
-                                                    memory_store_for_task.set(&key_clone, &fragment_data_clone).await;
-                                                    // Persist the decided erasure-coded entry to persistent storage
-                                                    // Find the most recent decided SET entry for this key
-                                                    if let Some(log_entries) = omni.read_decided_suffix(0) {
-                                                        for log_entry in log_entries.iter().rev() {
-                                                            if let LogEntry::Decided(entry_data) = log_entry {
-                                                                if entry_data.key == key_clone && entry_data.op == OperationType::SET {
-                                                                    // Persist the decided erasure-coded fragment
-                                                                    persistent_store_for_task.set(&key_clone, &entry_data.fragment.data);
-                                                                    break;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                                                    // Queue for durability
+                                                    pending_sets.push(PendingSet { key: key_clone.clone(), fragment: fragment_data_clone.clone(), response: response_arc.clone() });
+                                                    // Defer HTTP response until persistence
+                                                    should_respond = false;
                                                 },
                                                 Err(e) => {
                                                     error!("[OMNIPAXOS] Failed to set value: {:?}", e);
@@ -254,7 +249,7 @@ impl Node {
                                             // 2. Check persistent storage (requires EC reconstruction)
                                             else if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
                                                 let mut fragments = vec![EntryFragment {
-                                                    data: persisted_fragment.clone(),
+                                                    data: persisted_fragment.clone().entry.data,
                                                     ..Default::default()
                                                 }];
                                                 let ec_service = omni.ec_service();
@@ -439,7 +434,7 @@ impl Node {
                                             let mut key_found = false;
                                             if let Some(persisted_fragment) = persistent_store.get(&entry.key) {
                                                 key_found = true;
-                                                if let Ok(value) = String::from_utf8(persisted_fragment.clone()) {
+                                                if let Ok(value) = String::from_utf8(persisted_fragment.clone().entry.data) {
                                                     result = value;
                                                 } else {
                                                     result = "Failed to decode value".to_string();
@@ -494,9 +489,13 @@ impl Node {
                                         }
                                     }
 
-                                    // Send the result back to the HTTP handler
-                                    if let Err(e) = response.send(result) {
-                                        error!("[OMNIPAXOS] Failed to send response: {:?}", e);
+                                    // Send the result back to the HTTP handler if not deferred
+                                    if should_respond {
+                                        if let Some(sender) = response_arc.lock().await.take() {
+                                            if let Err(e) = sender.send(result) {
+                                                error!("[OMNIPAXOS] Failed to send response: {:?}", e);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -512,6 +511,36 @@ impl Node {
                                 trace!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
                                 let _ = send_omnipaxos_message(batch, addr, None).await;
                             }
+                        }
+
+                        // Process any pending SETs whose entry is now decided
+                        let mut i = 0;
+                        while i < pending_sets.len() {
+                            let ps = &pending_sets[i];
+
+                            let log_entries = {
+                                let omni = omnipaxos_clone.lock().await;
+                                omni.read_decided_suffix(0)
+                            };
+
+                            if let Some(log_entries) = log_entries {
+                                for log_entry in log_entries.iter().rev() {
+                                    if let LogEntry::Decided(entry_data) = log_entry {
+                                        if entry_data.key == ps.key && entry_data.op == OperationType::SET {
+                                            info!("[OMNIPAXOS] Successfully decided SET entry for key: {}", ps.key);
+                                            memory_store_for_task.set(&ps.key, &ps.fragment).await;
+                                            persistent_store_for_task.set(&ps.key, &entry_data.fragment);
+                                            if let Some(sender) = ps.response.lock().await.take() {
+                                                let _ = sender.send("Value set successfully".to_string());
+                                            }
+                                            pending_sets.remove(i);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            i += 1;
                         }
                     }
                     _ = tick_interval.tick() => {
