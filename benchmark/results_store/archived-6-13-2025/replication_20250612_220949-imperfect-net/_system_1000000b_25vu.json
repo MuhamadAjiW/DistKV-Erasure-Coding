@@ -1,0 +1,62 @@
+{
+  "testRunDetails": {
+    "timestamp": "2025-06-12T13:26:56.240Z",
+    "scriptOptions": {
+      "vus": 25,
+      "duration": "30s",
+      "scenarios": {},
+      "summaryTrendStats": [
+          "avg",
+          "min",
+          "med",
+          "max",
+          "p(90)",
+          "p(95)"
+        ],
+      "systemTags": ["check","error","error_code","expected_response","group","method","name","proto","scenario","service","status","subproto","tls_version","url"]
+    },
+    "environmentVariables": {
+      "BASE_URL": "http://localhost:2084",
+      "VUS": "25",
+      "SIZE": "1000000",
+      "DURATION": "30s"
+    }
+  },
+  "summary": {},
+  "details": {
+      "vus_max": {
+        "type": "gauge",
+        "contains": "default",
+        "values": {
+          "value": 25,
+          "min": 25,
+          "max": 25
+        }
+      },
+      "data_sent": {
+        "type": "counter",
+        "contains": "data",
+        "values": {
+          "count": 33337925,
+          "rate": 555586.3506966046
+        }
+      },
+      "data_received": {
+        "type": "counter",
+        "contains": "data",
+        "values": {
+          "count": 0,
+          "rate": 0
+        }
+      },
+      "vus": {
+        "type": "gauge",
+        "contains": "default",
+        "values": {
+          "max": 25,
+          "value": 25,
+          "min": 25
+        }
+      }
+    }
+}

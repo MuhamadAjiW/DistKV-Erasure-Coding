@@ -1,0 +1,14 @@
+{
+    "timestamp": "2025-07-04T20:29:51+07:00",
+    "test_type": "write",
+    "mode": "true",
+    "bandwidth": "85mbit",
+    "virtual_users": 1,
+    "size_bytes": 400000,
+    "collection_method": "k6_benchmark",
+    "log_file": "trace_write_erasure_400000b_1vu_85mbit_20250704_202951.log",
+    "k6_script": "./benchmark/script-write.js",
+    "k6_result_dir": "./benchmark/results/write",
+    "node_log_source": "./logs/node_0.0.0.0_2184.log",
+    "log_size_bytes": 412423
+}

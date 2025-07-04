@@ -1,0 +1,14 @@
+{
+    "timestamp": "2025-07-04T18:49:16+07:00",
+    "test_type": "write",
+    "mode": "false",
+    "bandwidth": "85mbit",
+    "virtual_users": 1,
+    "size_bytes": 200000,
+    "collection_method": "k6_benchmark",
+    "log_file": "trace_write_replication_200000b_1vu_85mbit_20250704_184916.log",
+    "k6_script": "./benchmark/script-write.js",
+    "k6_result_dir": "./benchmark/results/write",
+    "node_log_source": "./logs/node_0.0.0.0_2184.log",
+    "log_size_bytes": 489460
+}
