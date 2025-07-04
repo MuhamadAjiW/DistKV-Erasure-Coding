@@ -7,6 +7,7 @@ stop_all() {
     echo "Attempting to kill all screen sessions related to '$SCREEN_SESSION'..."
     screen -ls | grep "$SCREEN_SESSION" | awk '{print $1}' | xargs -r -I{} screen -S {} -X quit
     echo "Screen session cleanup initiated."
+    sleep 10
 }
 
 create_screen_session() {

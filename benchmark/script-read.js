@@ -5,12 +5,13 @@ import { b64encode, b64decode } from "k6/encoding";
 const BASE_URL = __ENV.BASE_URL || "http://localhost:2084";
 const VUS = __ENV.VUS || 1;
 const SIZE = __ENV.SIZE || 10240;
-const DURATION = __ENV.DURATION || "300s";
+const DURATION = __ENV.DURATION || "60s";
 const SEED_COUNT = __ENV.SEED_COUNT || 50;
 
 export const options = {
   vus: VUS,
   duration: DURATION,
+  setupTimeout: "5m",
 };
 
 // Seed data before the test starts
@@ -56,6 +57,8 @@ export default function (seeded) {
       }
     },
   });
+
+  // console.log(getRes.body);
 }
 
 export function handleSummary(data) {
