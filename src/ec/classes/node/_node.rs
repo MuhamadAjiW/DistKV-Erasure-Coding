@@ -211,7 +211,7 @@ impl Node {
                                                     info!("[OMNIPAXOS] SET operation received for key: {} with version: {}", entry.key, entry.version);
                                                     memory_store_for_task.remove(&entry.key).await;
                                                     // Store the entire versioned entry
-                                                    persistent_store_for_task.set(&entry.key, entry.clone());
+                                                    persistent_store_for_task.set(&entry.key, &entry);
                                                 }
                                             }
                                         }
@@ -540,7 +540,7 @@ impl Node {
                                             info!("[OMNIPAXOS] Successfully decided SET entry for key: {} with version: {}", ps.key, entry_data.version);
                                             memory_store_for_task.set(&ps.key, &ps.fragment).await;
                                             // Store the entire versioned entry
-                                            persistent_store_for_task.set(&ps.key, entry_data.clone());
+                                            persistent_store_for_task.set(&ps.key, &entry_data);
                                             if let Some(sender) = ps.response.lock().await.take() {
                                                 let _ = sender.send("Value set successfully".to_string());
                                             }

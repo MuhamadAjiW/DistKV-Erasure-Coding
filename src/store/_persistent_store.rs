@@ -25,7 +25,7 @@ where
 
     #[inline(always)]
     #[instrument(level = "debug", skip_all)]
-    pub fn set(&self, key: &str, data: T) {
+    pub fn set(&self, key: &str, data: &T) {
         let serialized_value =
             bincode::serialize(&data).expect("Failed to serialize entry for RocksDB");
 
@@ -39,8 +39,7 @@ where
     pub fn get(&self, key: &str) -> Option<T> {
         if let Ok(Some(value)) = self.rocks_db.get(key) {
             return Some(
-                bincode::deserialize(&value)
-                    .expect("Failed to deserialize entry from RocksDB"),
+                bincode::deserialize(&value).expect("Failed to deserialize entry from RocksDB"),
             );
         } else {
             return None;

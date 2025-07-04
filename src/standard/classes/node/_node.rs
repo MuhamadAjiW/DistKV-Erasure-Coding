@@ -16,7 +16,6 @@ use crate::config::_config::Config;
 use crate::config::_constants::{
     BUFFER_SIZE, ELECTION_TICK_TIMEOUT, RECONNECT_INTERVAL, TICK_PERIOD,
 };
-use crate::config::_pending_set::PendingSet;
 use crate::standard::base_libs::network::_messages::send_omnipaxos_message;
 use crate::standard::base_libs::{
     _types::{OmniPaxosKV, OmniPaxosMessage},
@@ -180,7 +179,6 @@ impl Node {
         tokio::spawn(async move {
             info!("[OMNIPAXOS] Initial jitter: {}ms", jitter_ms);
             sleep(Duration::from_millis(jitter_ms)).await;
-            let mut pending_sets: Vec<PendingSet> = Vec::new();
             let mut tick_interval = interval(TICK_PERIOD);
 
             loop {
@@ -202,7 +200,7 @@ impl Node {
                                                     info!("[OMNIPAXOS] SET operation received for key: {} with version: {}", entry.key, entry.version);
                                                     memory_store_for_task.set(&entry.key, &entry.value).await;
                                                     // Store the entire versioned entry
-                                                    persistent_store_for_task.set(&entry.key, entry.clone());
+                                                    persistent_store_for_task.set(&entry.key, &entry);
                                                 }
                                             }
                                         }
@@ -214,9 +212,7 @@ impl Node {
                             }
                             OmniPaxosRequest::Client { entry, response } => {
                                 trace!("[OMNIPAXOS] Client request: {:?}", entry);
-                                let response_arc = Arc::new(Mutex::new(Some(response)));
                                 // Flag to determine if immediate HTTP response should be sent
-                                let mut should_respond = true;
                                 let mut result = "Operation failed".to_string();
                                 {
                                     let mut omni = omnipaxos_clone.lock().await;
@@ -244,17 +240,14 @@ impl Node {
                                             // Clone data for pending set tracking
                                             let key_clone = versioned_entry.key.clone();
                                             let value_data_clone = versioned_entry.value.clone();
+                                            let versioned_entry_clone = versioned_entry.clone();
 
                                             match omni.append(versioned_entry) {
                                                 Ok(_) => {
-                                                    // Queue for durability with version info
-                                                    pending_sets.push(PendingSet {
-                                                        key: key_clone.clone(),
-                                                        fragment: value_data_clone.clone(),
-                                                        response: response_arc.clone()
-                                                    });
-                                                    // Defer HTTP response until persistence
-                                                    should_respond = false;
+                                                    // Update memory and persistent storage after consensus
+                                                    memory_store_for_task.set(&key_clone, &value_data_clone).await;
+                                                    persistent_store_for_task.set(&key_clone, &versioned_entry_clone);
+                                                    result = "Value set successfully".to_string();
                                                 },
                                                 Err(e) => {
                                                     error!("[OMNIPAXOS] Failed to set value: {:?}", e);
@@ -323,13 +316,8 @@ impl Node {
                                         }
                                     }
 
-                                    // Send the result back to the HTTP handler if not deferred
-                                    if should_respond {
-                                        if let Some(sender) = response_arc.lock().await.take() {
-                                            if let Err(e) = sender.send(result) {
-                                                error!("[OMNIPAXOS] Failed to send response: {:?}", e);
-                                            }
-                                        }
+                                    if let Err(e) = response.send(result) {
+                                        error!("[OMNIPAXOS] Failed to send response: {:?}", e);
                                     }
                                 }
                             }
@@ -345,37 +333,6 @@ impl Node {
                                 trace!("[OMNIPAXOS] Sending batch of {} messages to {} at {}", batch.len(), receiver, addr);
                                 let _ = send_omnipaxos_message(batch, addr, None).await;
                             }
-                        }
-
-                        // Process any pending SETs whose entry is now decided
-                        let mut i = 0;
-                        while i < pending_sets.len() {
-                            let ps = &pending_sets[i];
-
-                            let log_entries = {
-                                let omni = omnipaxos_clone.lock().await;
-                                omni.read_decided_suffix(0)
-                            };
-
-                            if let Some(log_entries) = log_entries {
-                                for log_entry in log_entries.iter().rev() {
-                                    if let LogEntry::Decided(entry_data) = log_entry {
-                                        if entry_data.key == ps.key && entry_data.op == OperationType::SET {
-                                            info!("[OMNIPAXOS] Successfully decided SET entry for key: {} with version: {}", ps.key, entry_data.version);
-                                            memory_store_for_task.set(&ps.key, &ps.fragment).await;
-                                            // Store the entire versioned entry
-                                            persistent_store_for_task.set(&ps.key, entry_data.clone());
-                                            if let Some(sender) = ps.response.lock().await.take() {
-                                                let _ = sender.send("Value set successfully".to_string());
-                                            }
-                                            pending_sets.remove(i);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            i += 1;
                         }
                     }
                     _ = tick_interval.tick() => {
