@@ -244,7 +244,7 @@ size=(
     # 1024kb for small kv use cases, 200kb to 1mb for scalability
     # 1024 200000 400000 600000 800000 1000000
 
-    1024
+    1024 200000 400000 600000 800000 1000000
 )
 
 bandwidth=(
@@ -256,9 +256,9 @@ bandwidth=(
     # 10gbit for typical data center connections
     # 256kbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
 
-    256kbit
+    256kbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
 )
-# Rough time calculation: vu * size * bandwidth * 2 (ec/rep) * 2 (rw) * 5 (5 minutes per case)
+# Rough time calculation: vu * size * bandwidth * 2 (ec/rep) * 2 (rw) * 1 (minutes per case)
 
 
 bench_system() {
