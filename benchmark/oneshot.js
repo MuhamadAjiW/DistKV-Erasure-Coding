@@ -1,8 +1,7 @@
-const BASE_URL = "http://localhost:2084";
 const SIZE = 1;
 
 function usage() {
-  console.log("Usage: node oneshot.js <write|read> [key]");
+  console.log("Usage: node oneshot.js <write|read> [key] [base_url]");
   process.exit(1);
 }
 
@@ -10,6 +9,10 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.length < 1) usage();
   const mode = args[0];
+  let baseUrl = "http://localhost:2084";
+  if (args.length > 2) {
+    baseUrl = args[2];
+  }
 
   if (mode === "write") {
     const key = Math.random().toString(36).substring(2, 12);
@@ -17,7 +20,7 @@ async function main() {
     const encodedKey = btoa(key);
     const encodedValue = btoa(value);
 
-    const response = await fetch(`${BASE_URL}/put`, {
+    const response = await fetch(`${baseUrl}/put`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: encodedKey, value: encodedValue }),
@@ -30,7 +33,7 @@ async function main() {
     if (args.length < 2) usage();
     const key = args[1];
     const encodedKey = btoa(key);
-    const get_response = await fetch(`${BASE_URL}/get`, {
+    const get_response = await fetch(`${baseUrl}/get`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: encodedKey }),
