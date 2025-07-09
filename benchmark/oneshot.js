@@ -19,15 +19,15 @@ async function main() {
   console.log("Response:", result);
   console.log("Succeeded:", response.status === 200);
 
-  // const get_response = await fetch(`${BASE_URL}/get`, {
-  //   method: "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body: JSON.stringify({ key: "M2s3d3EwYm0zZA==" }),
-  // });
+  const get_response = await fetch(`${BASE_URL}/get`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: encodedKey }),
+  });
 
-  // const get_result = await get_response.text();
-  // console.log("Get Response:", get_result);
-  // console.log("Get Succeeded:", get_response.status === 200);
+  const get_result = await get_response.text();
+  console.log("Get Response:", get_result);
+  console.log("Get Succeeded:", get_response.status === 200);
 }
 
 main();
