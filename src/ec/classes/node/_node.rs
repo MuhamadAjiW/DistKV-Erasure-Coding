@@ -117,7 +117,7 @@ impl Node {
                 config.nodes[index].rocks_db.transaction_log.clone(),
             );
             let omnipaxos: OmniPaxosECKV = omnipaxos_config
-                .build(PersistentStorage::new(storage_config))
+                .build(PersistentStorage::open(storage_config))
                 .unwrap();
             let persistent_path = config.nodes[index].rocks_db.kvstore.clone();
 
