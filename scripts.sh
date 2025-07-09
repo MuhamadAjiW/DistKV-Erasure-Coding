@@ -609,6 +609,78 @@ remove_netem_limits() {
     echo "Netem limits removed."
 }
 
+
+# Organize data files into directories based on payload, load, and network bandwidth
+organize_files() {
+    sudo chown -R "$(id -un):$(id -gn)" .
+    # Accept base directory as argument, default to ./benchmark/results if not provided
+    if [[ -n "$1" ]]; then
+        BASE_DIR="$1"
+    else
+        BASE_DIR="$(dirname "$0")/benchmark/results"
+    fi
+
+
+    echo "Organizing files in $BASE_DIR..."
+
+    # Loop through all relevant files in data subdirectories
+    find "$BASE_DIR" -type f \( -name "*.bench" -o -name "*.txt" -o -name "*.json" -o -name "*.log" \) | while read -r file; do
+        echo "Processing file: $file"
+
+        fname="$(basename "$file")"
+        # Extract payload size (number before 'b')
+        if [[ "$fname" =~ ([0-9]+)b ]]; then
+            payload=${BASH_REMATCH[1]}
+        else
+            continue
+        fi
+        # Determine load tag
+        if [[ "$payload" -eq 1024 ]]; then
+            load_tag="smload"
+        else
+            load_tag=""
+        fi
+        # Extract bandwidth token
+        if [[ "$fname" =~ ([0-9]+(gbit|kbit)) ]]; then
+            bw_token=${BASH_REMATCH[1]}
+        else
+            bw_token=""
+        fi
+        # Map bandwidth to network category
+        case "$bw_token" in
+            10gbit)
+                net_tag="fastnet" ;;
+            256kbit)
+                net_tag="slownet" ;;
+            *)
+                net_tag="avgnet" ;;
+        esac
+        # Determine operation (read or write) by path first, then filename
+        if [[ "$file" =~ /read/ ]]; then
+            op_tag="read"
+        elif [[ "$file" =~ /write/ ]]; then
+            op_tag="write"
+        elif [[ "$fname" =~ read ]]; then
+            op_tag="read"
+        elif [[ "$fname" =~ put|write ]]; then
+            op_tag="write"
+        else
+            continue
+        fi
+        # Build target directory name
+        if [[ -n "$load_tag" ]]; then
+            target_dir="${op_tag}_${load_tag}_${net_tag}"
+        else
+            target_dir="${op_tag}_${net_tag}"
+        fi
+        # Create and move
+        dest_path="$BASE_DIR/organized/$target_dir"
+        mkdir -p "$dest_path"
+        mv -n "$file" "$dest_path/"
+    done
+}
+
+
 if [ "$1" == "clean" ]; then
     clean
 elif [ "$1" == "run_node" ]; then
@@ -633,6 +705,8 @@ elif [ "$1" == "add_netem_limits" ]; then
     add_netem_limits
 elif [ "$1" == "remove_netem_limits" ]; then
     remove_netem_limits
+elif [ "$1" == "organize_files" ]; then
+    organize_files "$2"
 elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|run_bench_suite|add_netem_limits|remove_netem_limits|help}"
     echo ""
@@ -678,6 +752,10 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo ""
     echo "  remove_netem_limits                                                        : "
     echo "          Removes the above netem/iptables rules."
+    echo ""
+    echo "  organize_files [base_directory]                                           : "
+    echo "          Organizes data files into directories based on payload, load, and network bandwidth."
+    echo "          base_directory : Optional base directory to organize files (default: ./benchmark/results)."
     echo ""
     echo "  help                                                                        : "
     echo "          Displays this help message."
