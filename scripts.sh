@@ -244,19 +244,19 @@ size=(
     # 1024kb for small kv use cases, 200kb to 1mb for scalability
     # 1024 200000 400000 600000 800000 1000000
 
-    1024 200000 400000 600000 800000 1000000
+    200000 400000 600000 800000 1000000
 )
 
 bandwidth=(
     # Indonesian average internet bandwidth is 40mbit/s per june 2025
     # https://www.speedtest.net/global-index#mobile
 
-    # 256kbit for low end mobile connections
+    # 1mbit for low end mobile connections
     # 10mbit - 70mbit for typical indonesian home connections and linear scalability
     # 10gbit for typical data center connections
-    # 256kbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
+    # 1mbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
 
-    256kbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
+    1mbit
 )
 # Rough time calculation: vu * size * bandwidth * 2 (ec/rep) * 2 (rw) * 1 (minutes per case)
 
@@ -650,7 +650,7 @@ organize_files() {
         case "$bw_token" in
             10gbit)
                 net_tag="fastnet" ;;
-            256kbit)
+            1mbit)
                 net_tag="slownet" ;;
             *)
                 net_tag="avgnet" ;;
