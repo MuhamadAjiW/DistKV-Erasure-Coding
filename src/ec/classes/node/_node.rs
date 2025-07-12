@@ -279,8 +279,8 @@ impl Node {
 
                                             // Check from memory store first
                                             // 1. Check from memory store first (fast path)
-                                            // if let Some(value) = memory_store.get(&entry.key).await {
-                                            if let Some(value) = memory_store.get("__DISABLED__").await {
+                                            if let Some(value) = memory_store.get(&entry.key).await {
+                                            // if let Some(value) = memory_store.get("__DISABLED__").await {
                                                 if let Ok(value_str) = String::from_utf8(value) {
                                                     result = value_str;
                                                 } else {
