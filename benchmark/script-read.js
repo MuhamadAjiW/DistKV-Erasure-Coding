@@ -5,8 +5,8 @@ import { b64encode, b64decode } from "k6/encoding";
 const BASE_URL = __ENV.BASE_URL || "http://localhost:2084";
 const VUS = __ENV.VUS || 1;
 const SIZE = __ENV.SIZE || 10240;
-const DURATION = __ENV.DURATION || "180s";
-const SEED_COUNT = __ENV.SEED_COUNT || 10;
+const DURATION = __ENV.DURATION || "30s";
+const SEED_COUNT = __ENV.SEED_COUNT || 1;
 
 export const options = {
   vus: VUS,
@@ -32,6 +32,8 @@ export function setup() {
 
     sleep(0.25); // Sleep to avoid overwhelming the server with requests
   }
+
+  sleep(30); // Ensure all seeds are processed before starting the test
   return seeded;
 }
 
