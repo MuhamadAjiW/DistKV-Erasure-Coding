@@ -6,12 +6,12 @@ const BASE_URL = __ENV.BASE_URL || "http://localhost:2084";
 const VUS = __ENV.VUS || 1;
 const SIZE = __ENV.SIZE || 10240;
 const DURATION = __ENV.DURATION || "180s";
-const SEED_COUNT = __ENV.SEED_COUNT || 50;
+const SEED_COUNT = __ENV.SEED_COUNT || 10;
 
 export const options = {
   vus: VUS,
   duration: DURATION,
-  setupTimeout: "5m",
+  setupTimeout: "30m",
 };
 
 // Seed data before the test starts
