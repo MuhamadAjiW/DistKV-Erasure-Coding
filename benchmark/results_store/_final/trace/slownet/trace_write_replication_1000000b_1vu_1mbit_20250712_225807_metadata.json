@@ -1,14 +1,14 @@
 {
-    "timestamp": "2025-07-05T03:20:50+07:00",
+    "timestamp": "2025-07-12T22:58:07+07:00",
     "test_type": "write",
     "mode": "false",
-    "bandwidth": "256kbit",
+    "bandwidth": "1mbit",
     "virtual_users": 1,
-    "size_bytes": 600000,
+    "size_bytes": 1000000,
     "collection_method": "k6_benchmark",
-    "log_file": "trace_write_replication_600000b_1vu_256kbit_20250705_032050.log",
+    "log_file": "trace_write_replication_1000000b_1vu_1mbit_20250712_225807.log",
     "k6_script": "./benchmark/script-write.js",
     "k6_result_dir": "./benchmark/results/write",
     "node_log_source": "./logs/node_0.0.0.0_2184.log",
-    "log_size_bytes": 4927
+    "log_size_bytes": 8824
 }
