@@ -1,0 +1,14 @@
+{
+    "timestamp": "2025-07-13T13:29:17+07:00",
+    "test_type": "read",
+    "mode": "false",
+    "bandwidth": "70mbit",
+    "virtual_users": 1,
+    "size_bytes": 1000000,
+    "collection_method": "k6_benchmark",
+    "log_file": "trace_read_replication_1000000b_1vu_70mbit_20250713_132916.log",
+    "k6_script": "./benchmark/script-read.js",
+    "k6_result_dir": "./benchmark/results/read",
+    "node_log_source": "./logs/node_0.0.0.0_2184.log",
+    "log_size_bytes": 13101066
+}
