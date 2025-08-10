@@ -1,0 +1,19 @@
+{
+  "benchmark": {
+    "data": {
+      "virtual_users": [1],
+      "size": [1024],
+      "bandwidth": ["1mbit"]
+    },
+    "tests": {
+      "operations": ["read", "write"],
+      "system": ["replication", "erasure_coding"]
+    },
+    "config": {
+      "trace": true,
+      "duration": "5s",
+      "seed_count": 50,
+      "leader_url": "http://localhost:2084"
+    }
+  }
+}

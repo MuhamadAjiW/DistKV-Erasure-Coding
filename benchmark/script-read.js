@@ -6,7 +6,7 @@ const BASE_URL = __ENV.BASE_URL || "http://localhost:2084";
 const VUS = __ENV.VUS || 1;
 const SIZE = __ENV.SIZE || 10240;
 const DURATION = __ENV.DURATION || "30s";
-const SEED_COUNT = __ENV.SEED_COUNT || 1;
+const SEED_COUNT = __ENV.SEED_COUNT || 50;
 
 export const options = {
   vus: VUS,

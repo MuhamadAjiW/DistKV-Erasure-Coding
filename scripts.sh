@@ -7,7 +7,8 @@ stop_all() {
     echo "Attempting to kill all screen sessions related to '$SCREEN_SESSION'..."
     screen -ls | grep "$SCREEN_SESSION" | awk '{print $1}' | xargs -r -I{} screen -S {} -X quit
     echo "Screen session cleanup initiated."
-    sleep 10
+    # Short sleep to avoid flakiness
+    sleep 5
 }
 
 create_screen_session() {
@@ -229,36 +230,32 @@ run_all() {
 }
 
 
-# Choose the benchmark parameters
-# These parameters can be adjusted based on the use case and system capabilities.
-# The values below are examples and can be modified as needed.
-# Best not to run all of them at once, as it will take a long time.
-virtual_users=(
-    # 1 user for baseline, 10 to 50 for scalability
-    # 1 10 20 30 40 50
-
-    1
-)
-
-size=(
-    # 1024kb for small kv use cases, 200kb to 1mb for scalability
-    # 1024 200000 400000 600000 800000 1000000
-
-    200000 400000 600000 800000 1000000
-)
-
-bandwidth=(
-    # Indonesian average internet bandwidth is 40mbit/s per june 2025
-    # https://www.speedtest.net/global-index#mobile
-
-    # 1mbit for low end mobile connections
-    # 10mbit - 70mbit for typical indonesian home connections and linear scalability
-    # 10gbit for typical data center connections
-    # 1mbit 10mbit 25mbit 40mbit 55mbit 70mbit 10gbit
-
-    1mbit
-)
-# Rough time calculation: vu * size * bandwidth * 2 (ec/rep) * 2 (rw) * 1 (minutes per case)
+load_bench_config() {
+    local bench_config="${1:-./etc/bench.json}"
+    
+    if [[ ! -f "$bench_config" ]]; then
+        echo "Error: Benchmark config file '$bench_config' not found."
+        exit 1
+    fi
+    
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required but not installed."
+        exit 1
+    fi
+    
+    # Load arrays from JSON config
+    mapfile -t operations < <(jq -r '.benchmark.tests.operations[]' "$bench_config")
+    mapfile -t system < <(jq -r '.benchmark.tests.system[]' "$bench_config")
+    mapfile -t virtual_users < <(jq -r '.benchmark.data.virtual_users[]' "$bench_config")
+    mapfile -t size < <(jq -r '.benchmark.data.size[]' "$bench_config")
+    mapfile -t bandwidth < <(jq -r '.benchmark.data.bandwidth[]' "$bench_config")
+    
+    # Load trace setting, duration, seed_count, and leader_url
+    trace_enabled=$(jq -r '.benchmark.config.trace // false' "$bench_config")
+    duration=$(jq -r '.benchmark.config.duration // "30s"' "$bench_config")
+    seed_count=$(jq -r '.benchmark.config.seed_count // 1' "$bench_config")
+    leader_url=$(jq -r '.benchmark.config.leader_url // "http://localhost:2084"' "$bench_config")
+}
 
 
 bench_system() {
@@ -266,14 +263,40 @@ bench_system() {
         echo "This function must be run as root (sudo)."
         exit 1
     fi
-
+    
+    local bench_config="./etc/bench.json"
     local test_type="write" # default
     local base_url_env=""
-    if [[ "$1" == "read" || "$1" == "write" ]]; then
-        test_type="$1"
-        shift
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            read|write)
+                test_type="$1"
+                shift
+                ;;
+            --config)
+                bench_config="$2"
+                shift 2
+                ;;
+            --url)
+                base_url_env="$2"
+                shift 2
+                ;;
+            *)
+                # Treat unknown argument as base URL for backward compatibility
+                base_url_env="$1"
+                shift
+                ;;
+        esac
+    done
+    
+    load_bench_config "$bench_config"
+    # Use leader_url from config if no URL provided
+    if [ -z "$base_url_env" ]; then
+        base_url_env="$leader_url"
     fi
-    base_url_env="$1"
+    
     local base_url_arg=""
     if [ -n "$base_url_env" ]; then
         base_url_arg="-e \"BASE_URL=$base_url_env\""
@@ -295,7 +318,7 @@ bench_system() {
                 echo "Using k6 ($test_type) with VUS=${vus_value}, SIZE=${size_value}, BANDWIDTH=${bandwidth_value} and extra args: ${base_url_env}"
                 mpstat 1 > "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
                 MPSTAT_PID=$!
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" ${base_url_arg} --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "DURATION=$duration" -e "SEED_COUNT=$seed_count" ${base_url_arg} --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
                 kill $MPSTAT_PID
                 awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "$result_dir/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
 
@@ -374,7 +397,7 @@ bench_system_with_reset() {
                     > "./logs/node_0.0.0.0_2184.log"
                 fi
                 
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "DURATION=$duration" -e "SEED_COUNT=$seed_count" --quiet $script_file > "$result_dir/_${test_type}_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
                 kill $MPSTAT_PID
                 awk '/^[0-9]/ {sum+=$3+$5} END {if(NR>0) print "Average CPU usage (%):", sum/NR; else print "No CPU data"}' "$result_dir/cpu_${size_value}b_${vus_value}vu_${bandwidth_value}.log" > "$result_dir/cpu_avg_${size_value}b_${vus_value}vu_${bandwidth_value}.txt"
 
@@ -397,6 +420,25 @@ bench_baseline() {
         echo "This function must be run as root (sudo)."
         exit 1
     fi
+
+    local bench_config="./etc/bench.json"
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --config)
+                bench_config="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown argument: $1"
+                echo "Supported options: --config <path>"
+                return 1
+                ;;
+        esac
+    done
+    
+    load_bench_config "$bench_config"
     echo "Running benchmark on etcd for baseline..."
 
     for bandwidth_value in "${bandwidth[@]}"; do
@@ -413,7 +455,7 @@ bench_baseline() {
                 mpstat 1 > "./benchmark/results/cpu_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.log" &
                 MPSTAT_PID=$!
                 # Run k6
-                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" --quiet ./benchmark/script-etcd.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
+                k6 run -e "VUS=$vus_value" -e "SIZE=$size_value" -e "DURATION=$duration" -e "SEED_COUNT=$seed_count" --quiet ./benchmark/script-etcd.js > "./benchmark/results/_baseline_${size_value}b_${vus_value}vu_${bandwidth_value}.json"
                 # Stop mpstat
                 kill $MPSTAT_PID
                 # Optional: Print average CPU usage
@@ -430,82 +472,76 @@ run_bench_suite() {
         exit 1
     fi
     
-    local enable_trace="false"
+    # Preserve user's PATH and cargo environment
+    if [[ -n "$SUDO_USER" ]]; then
+        USER_HOME=$(eval echo ~$SUDO_USER)
+        export PATH="$USER_HOME/.cargo/bin:$PATH"
+    fi
     
-    # Parse arguments for trace collection options
+    cargo build --release
+    local bench_config="./etc/bench.json"
+    
+    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --trace)
-                enable_trace="true"
-                shift
+            --config)
+                bench_config="$2"
+                shift 2
                 ;;
             *)
                 echo "Unknown argument: $1"
-                echo "Supported options: --trace"
+                echo "Supported options: --config <path>"
                 return 1
                 ;;
         esac
     done
+
+    load_bench_config "$bench_config"
     
     timestamp=$(date +%Y%m%d_%H%M%S)
     stop_all
     
     echo "Starting benchmark suite..."
+    local enable_trace="$trace_enabled"
     if [[ "$enable_trace" == "true" ]]; then
         echo "Trace collection enabled: Will capture trace data during all k6 benchmark executions"
+    else
+        echo "Trace collection disabled"
     fi
 
     # Prepare trace collection arguments if enabled
-    local other_args=()
+    local trace_args=()
     if [[ "$enable_trace" == "true" ]]; then
-        other_args+=("--trace")
+        trace_args+=("--trace")
     fi
 
-    # Benchmark replication
-    echo "Benchmarking replication (write)..."
-    bench_system_with_reset write "${other_args[@]}"
-    if [ -d ./benchmark/results/replication/write ]; then
-        mv ./benchmark/results/replication/write ./benchmark/results/replication/write_$timestamp
-    fi
-    mkdir -p ./benchmark/results/replication/write
-    mv ./benchmark/results/write/_write_*.json ./benchmark/results/replication/write/
-    mv ./benchmark/results/write/cpu_*.log ./benchmark/results/replication/write/
-    mv ./benchmark/results/write/cpu_avg_*.txt ./benchmark/results/replication/write/
-
-    echo "Benchmarking replication (read)..."
-    bench_system_with_reset read "${other_args[@]}"
-    if [ -d ./benchmark/results/replication/read ]; then
-        mv ./benchmark/results/replication/read ./benchmark/results/replication/read_$timestamp
-    fi
-    mkdir -p ./benchmark/results/replication/read
-    mv ./benchmark/results/read/_read_*.json ./benchmark/results/replication/read/
-    mv ./benchmark/results/read/cpu_*.log ./benchmark/results/replication/read/
-    mv ./benchmark/results/read/cpu_avg_*.txt ./benchmark/results/replication/read/
-
-    echo "Replication benchmark completed. Results are stored in ./benchmark/results/replication."
-
-    # Benchmark erasure coding
-    echo "Benchmarking erasure coding (write)..."
-    bench_system_with_reset write --erasure "${other_args[@]}"
-    if [ -d ./benchmark/results/erasure/write ]; then
-        mv ./benchmark/results/erasure/write ./benchmark/results/erasure/write_$timestamp
-    fi
-    mkdir -p ./benchmark/results/erasure/write
-    mv ./benchmark/results/write/_write_*.json ./benchmark/results/erasure/write/
-    mv ./benchmark/results/write/cpu_*.log ./benchmark/results/erasure/write/
-    mv ./benchmark/results/write/cpu_avg_*.txt ./benchmark/results/erasure/write/
-
-    echo "Benchmarking erasure coding (read)..."
-    bench_system_with_reset read --erasure "${other_args[@]}"
-    if [ -d ./benchmark/results/erasure/read ]; then
-        mv ./benchmark/results/erasure/read ./benchmark/results/erasure/read_$timestamp
-    fi
-    mkdir -p ./benchmark/results/erasure/read
-    mv ./benchmark/results/read/_read_*.json ./benchmark/results/erasure/read/
-    mv ./benchmark/results/read/cpu_*.log ./benchmark/results/erasure/read/
-    mv ./benchmark/results/read/cpu_avg_*.txt ./benchmark/results/erasure/read/
-
-    echo "Erasure coding benchmark completed. Results are stored in ./benchmark/results/erasure."
+    # Run benchmarks for each system and operation combination
+    for system_type in "${system[@]}"; do
+        local system_args=()
+        if [[ "$system_type" == "erasure_coding" ]]; then
+            system_args+=("--erasure")
+        fi
+        
+        for operation in "${operations[@]}"; do
+            echo "Benchmarking $system_type ($operation)..."
+            bench_system_with_reset "$operation" "${system_args[@]}" "${trace_args[@]}"
+            
+            local result_subdir="$system_type"
+            if [[ "$system_type" == "erasure_coding" ]]; then
+                result_subdir="erasure"
+            fi
+            
+            if [ -d "./benchmark/results/$result_subdir/$operation" ]; then
+                mv "./benchmark/results/$result_subdir/$operation" "./benchmark/results/${result_subdir}/${operation}_$timestamp"
+            fi
+            mkdir -p "./benchmark/results/$result_subdir/$operation"
+            mv "./benchmark/results/$operation/_${operation}_"*.json "./benchmark/results/$result_subdir/$operation/"
+            mv "./benchmark/results/$operation/cpu_"*.log "./benchmark/results/$result_subdir/$operation/"
+            mv "./benchmark/results/$operation/cpu_avg_"*.txt "./benchmark/results/$result_subdir/$operation/"
+            
+            echo "$system_type ($operation) benchmark completed. Results stored in ./benchmark/results/$result_subdir/$operation."
+        done
+    done
 
     if [[ "$enable_trace" == "true" ]]; then
         echo "Trace data collected for all parameter combinations and stored in ./benchmark/results/trace."
@@ -513,7 +549,7 @@ run_bench_suite() {
     fi
 
     rm -rf ./benchmark/results/write ./benchmark/results/read
-    echo "Benchmarking completed. Results are stored in ./benchmark/results/replication and ./benchmark/results/erasure."
+    echo "Benchmarking completed. Results are stored in ./benchmark/results/ subdirectories."
     echo "You can analyze the results using k6's HTML report generation or other tools."
 }
 
@@ -692,12 +728,14 @@ elif [ "$1" == "run_all" ]; then
 elif [ "$1" == "stop_all" ]; then
     stop_all
 elif [ "$1" == "bench_system" ]; then
-    bench_system "$2"
+    shift
+    bench_system "$@"
 elif [ "$1" == "bench_system_with_reset" ]; then
     shift
     bench_system_with_reset "$@"
 elif [ "$1" == "bench_baseline" ]; then
-    bench_baseline
+    shift
+    bench_baseline "$@"
 elif [ "$1" == "run_bench_suite" ]; then
     shift
     run_bench_suite "$@"
@@ -728,9 +766,12 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "  stop_all                                                                    : "
     echo "          Kills all screen sessions created by this script."
     echo ""
-    echo "  bench_system '<leader_addr>'                                       : "
+    echo "  bench_system [<test_type>] [--url <leader_addr>] [--config <path>] : "
     echo "          Runs k6 benchmark against the running DistKV system."
-    echo "          Leader url should be in the format 'http://<leader_ip>:<leader_http_port>'."
+    echo "          test_type      : 'read' or 'write' (default: write)"
+    echo "          --url          : Leader URL (e.g., http://127.0.0.1:2084)"
+    echo "          --config       : Path to benchmark config file (default: ./etc/bench.json)"
+    echo "          Example: bench_system write --url http://127.0.0.1:2084"
     echo ""
     echo "  bench_system_with_reset [<test_type>] [<args>] [--trace] : "
     echo "          Runs k6 benchmark against the system, resetting nodes before each test."
@@ -739,13 +780,15 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "          --trace          : Enable trace data collection during k6 benchmark execution"
     echo "          Example: bench_system_with_reset write --erasure --trace"
     echo ""
-    echo "  bench_baseline                                                              : "
-    echo "          Runs k6 benchmark for baseline."
+    echo "  bench_baseline [--config <path>] : "
+    echo "          Runs k6 benchmark for baseline comparison."
+    echo "          --config       : Path to benchmark config file (default: ./etc/bench.json)"
+    echo "          Example: bench_baseline --config ./custom/bench.json"
     echo ""
-    echo "  run_bench_suite [--trace] : "
-    echo "          Runs the full benchmark suite, including replication and erasure coding benchmarks."
-    echo "          --trace           : Enable trace data collection during all k6 benchmark executions"
-    echo "          Example: run_bench_suite --trace"
+    echo "  run_bench_suite [--config <path>] : "
+    echo "          Runs the full benchmark suite based on benchmark configuration."
+    echo "          --config       : Path to benchmark config file (default: ./etc/bench.json)"
+    echo "          Example: run_bench_suite --config ./custom/bench.json"
     echo ""
     echo "  add_netem_limits <bandwidth>                                             : "
     echo "          Adds a bandwidth limit to loopback for ports 2080-2290. Bandwidth must be specified (e.g., 200kbit, 400kbit, 1mbit)."
