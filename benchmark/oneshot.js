@@ -32,11 +32,10 @@ async function main() {
   } else if (mode === "read") {
     if (args.length < 2) usage();
     const key = args[1];
-    const encodedKey = btoa(key);
     const get_response = await fetch(`${baseUrl}/get`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: encodedKey }),
+      body: JSON.stringify({ key: key }),
     });
     const get_result = await get_response.text();
     console.log("Get Response:", get_result);
