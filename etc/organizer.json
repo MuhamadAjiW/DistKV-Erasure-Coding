@@ -1,0 +1,6 @@
+{
+  "organizer": {
+    "slownet_max": "1mbit",
+    "fastnet_min": "1gbit"
+  }
+}

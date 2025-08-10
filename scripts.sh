@@ -646,74 +646,132 @@ remove_netem_limits() {
 }
 
 
+# Load organizer configuration
+load_organizer_config() {
+    local config_file="${1:-./etc/organizer.json}"
+    if [[ -f "$config_file" ]] && command -v jq &>/dev/null; then
+        slownet_max=$(jq -r '.organizer.slownet_max // "1mbit"' "$config_file")
+        fastnet_min=$(jq -r '.organizer.fastnet_min // "1gbit"' "$config_file")
+    else
+        slownet_max="1mbit"
+        fastnet_min="1gbit"
+    fi
+}
+
+# Convert bandwidth to comparable number (in kbps)
+bandwidth_to_kbps() {
+    local bw="$1"
+    if [[ "$bw" =~ ([0-9]+)kbit ]]; then
+        echo "${BASH_REMATCH[1]}"
+    elif [[ "$bw" =~ ([0-9]+)mbit ]]; then
+        echo "$((${BASH_REMATCH[1]} * 1000))"
+    elif [[ "$bw" =~ ([0-9]+)gbit ]]; then
+        echo "$((${BASH_REMATCH[1]} * 1000000))"
+    else
+        echo "0"
+    fi
+}
+
 # Organize data files into directories based on payload, load, and network bandwidth
 organize_files() {
     sudo chown -R "$(id -un):$(id -gn)" .
-    # Accept base directory as argument, default to ./benchmark/results if not provided
-    if [[ -n "$1" ]]; then
-        BASE_DIR="$1"
-    else
-        BASE_DIR="$(dirname "$0")/benchmark/results"
-    fi
-
-
-    echo "Organizing files in $BASE_DIR..."
-
-    # Loop through all relevant files in data subdirectories
-    find "$BASE_DIR" -type f \( -name "*.bench" -o -name "*.txt" -o -name "*.json" -o -name "*.log" \) | while read -r file; do
-        echo "Processing file: $file"
-
-        fname="$(basename "$file")"
-        # Extract payload size (number before 'b')
-        if [[ "$fname" =~ ([0-9]+)b ]]; then
-            payload=${BASH_REMATCH[1]}
-        else
-            continue
-        fi
-        # Determine load tag
-        if [[ "$payload" -eq 1024 ]]; then
-            load_tag="smload"
-        else
-            load_tag=""
-        fi
-        # Extract bandwidth token
-        if [[ "$fname" =~ ([0-9]+(gbit|kbit)) ]]; then
-            bw_token=${BASH_REMATCH[1]}
-        else
-            bw_token=""
-        fi
-        # Map bandwidth to network category
-        case "$bw_token" in
-            10gbit)
-                net_tag="fastnet" ;;
-            1mbit)
-                net_tag="slownet" ;;
+    local BASE_DIR="${1:-./benchmark/results}"
+    local archive_name=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --archive)
+                archive_name="$2"
+                shift 2
+                ;;
             *)
-                net_tag="avgnet" ;;
+                if [[ -z "$BASE_DIR" || "$BASE_DIR" == "./benchmark/results" ]]; then
+                    BASE_DIR="$1"
+                fi
+                shift
+                ;;
         esac
-        # Determine operation (read or write) by path first, then filename
-        if [[ "$file" =~ /read/ ]]; then
-            op_tag="read"
-        elif [[ "$file" =~ /write/ ]]; then
-            op_tag="write"
-        elif [[ "$fname" =~ read ]]; then
-            op_tag="read"
-        elif [[ "$fname" =~ put|write ]]; then
-            op_tag="write"
-        else
-            continue
-        fi
-        # Build target directory name
-        if [[ -n "$load_tag" ]]; then
-            target_dir="${op_tag}_${load_tag}_${net_tag}"
-        else
-            target_dir="${op_tag}_${net_tag}"
-        fi
-        # Create and move
-        dest_path="$BASE_DIR/organized/$target_dir"
-        mkdir -p "$dest_path"
-        mv -n "$file" "$dest_path/"
     done
+
+    load_organizer_config
+    local slownet_kbps=$(bandwidth_to_kbps "$slownet_max")
+    local fastnet_kbps=$(bandwidth_to_kbps "$fastnet_min")
+    
+    echo "Organizing files in $BASE_DIR..."
+    echo "Network thresholds: slownet ≤ ${slownet_max}, fastnet ≥ ${fastnet_min}"
+
+    # Always create archived directory and move results there
+    local timestamp=$(date +%H%M%S)
+    local month=$(date +%-m)
+    local day=$(date +%-d)
+    local year=$(date +%Y)
+    local archive_dir
+    if [[ -n "$archive_name" ]]; then
+        archive_dir="$BASE_DIR/archived-${archive_name}"
+    else
+        archive_dir="$BASE_DIR/archived-${month}-${day}-${year}-${timestamp}"
+    fi
+    
+    mkdir -p "$archive_dir"
+    
+    # Move current results to archive first
+    for subdir in erasure replication trace; do
+        if [[ -d "$BASE_DIR/$subdir" ]]; then
+            mv "$BASE_DIR/$subdir" "$archive_dir/"
+            mkdir -p "$BASE_DIR/$subdir"
+        fi
+    done
+    
+    # Organize files in the archived directory
+    for result_type in erasure replication trace; do
+        local type_dir="$archive_dir/$result_type"
+        [[ ! -d "$type_dir" ]] && continue
+        
+        find "$type_dir" -type f \( -name "*.bench" -o -name "*.txt" -o -name "*.json" -o -name "*.log" \) | while read -r file; do
+            local fname="$(basename "$file")"
+            local payload bw_token op_tag net_tag load_tag target_dir
+            
+            [[ "$fname" =~ ([0-9]+)b ]] || continue
+            payload=${BASH_REMATCH[1]}
+            load_tag=$([[ "$payload" -eq 1024 ]] && echo "smload" || echo "")
+            
+            if [[ "$fname" =~ ([0-9]+(gbit|mbit|kbit)) ]]; then
+                bw_token=${BASH_REMATCH[1]}
+                local bw_kbps=$(bandwidth_to_kbps "$bw_token")
+                if [[ $bw_kbps -le $slownet_kbps ]]; then
+                    net_tag="slownet"
+                elif [[ $bw_kbps -ge $fastnet_kbps ]]; then
+                    net_tag="fastnet"
+                else
+                    net_tag="avgnet"
+                fi
+            else
+                net_tag="avgnet"
+            fi
+            
+            if [[ "$file" =~ /read/ || "$fname" =~ read ]]; then
+                op_tag="read"
+            elif [[ "$file" =~ /write/ || "$fname" =~ (put|write) ]]; then
+                op_tag="write"
+            else
+                continue
+            fi
+            
+            target_dir="${op_tag}"
+            [[ -n "$load_tag" ]] && target_dir="${target_dir}_${load_tag}"
+            target_dir="${target_dir}_${net_tag}"
+            
+            local dest_path="$archive_dir/$result_type/$target_dir"
+            mkdir -p "$dest_path"
+            mv -n "$file" "$dest_path/"
+        done
+    done
+    
+    # Remove flat read/write folders from erasure and replication after organization
+    rm -rf "$archive_dir/erasure/read" "$archive_dir/erasure/write" "$archive_dir/replication/read" "$archive_dir/replication/write"
+    
+    echo "Results archived and organized in: $archive_dir"
 }
 
 
@@ -744,7 +802,8 @@ elif [ "$1" == "add_netem_limits" ]; then
 elif [ "$1" == "remove_netem_limits" ]; then
     remove_netem_limits
 elif [ "$1" == "organize_files" ]; then
-    organize_files "$2"
+    shift
+    organize_files "$@"
 elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "Usage: $0 {clean|run_node|run_all|stop_all|bench_system|bench_baseline|run_bench_suite|add_netem_limits|remove_netem_limits|help}"
     echo ""
@@ -796,9 +855,10 @@ elif [ "$1" == "help" ] || [ -z "$1" ]; then
     echo "  remove_netem_limits                                                        : "
     echo "          Removes the above netem/iptables rules."
     echo ""
-    echo "  organize_files [base_directory]                                           : "
+    echo "  organize_files [base_directory] [--archive <name>]                       : "
     echo "          Organizes data files into directories based on payload, load, and network bandwidth."
     echo "          base_directory : Optional base directory to organize files (default: ./benchmark/results)."
+    echo "          --archive      : Archive current results with name archived-<month>-<date>-<year>-<timestamp>."
     echo ""
     echo "  help                                                                        : "
     echo "          Displays this help message."
